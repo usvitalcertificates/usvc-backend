@@ -18,3 +18,9 @@ This folder is the USVC Express + TypeScript API. It uses MongoDB Atlas through 
 See [README.md](README.md) and [docs/CURRENT_STATUS.md](docs/CURRENT_STATUS.md) before adding a module.
 
 - Plan and track work in [docs/TODO.md](docs/TODO.md); log locked choices in [docs/DECISIONS.md](docs/DECISIONS.md). After any code change, update `docs/TODO.md` + `docs/CURRENT_STATUS.md` in the same turn.
+
+## Git workflow (locked)
+
+- `main` = production. `develop` = staging. Never commit directly to either.
+- Always create a feature branch from `develop` (`git checkout -b feat/<name> develop`) and raise the PR against `develop`.
+- Merge `develop` → `main` only for production releases.
