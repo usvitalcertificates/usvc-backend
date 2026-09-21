@@ -53,6 +53,10 @@ Stripe owns payment credentials. USVC stores Stripe identifiers and permitted or
 
 Checkout uses Stripe Checkout Sessions (`ui_mode: elements`, embedded tabs) — one charge path only. The older PaymentIntent endpoint was removed to avoid dual charge paths. Session totals are recomputed server-side; open sessions are reused; confirmation always re-reads the session from Stripe. Webhooks handle `payment_intent.*` plus `checkout.session.completed` / `async_payment_failed`, all idempotent by event ID.
 
+## Transactional email
+
+Payment-confirmation email uses Resend and is triggered only by signed Stripe success webhooks, never by the browser redirect. The webhook transaction upserts a unique `payment-confirmation:{orderId}` MongoDB outbox record alongside the paid state. An in-process worker leases and retries delivery, and the same key is sent to Resend as its idempotency key. Staging requires a recipient override; production sends to the applicant email stored on the order.
+
 ## Pricing
 
 Pricing is calculated in integer cents on the server. Two-fee model (owner decision 2026-09-21, matching usvitalrecords.org): only the $125/copy Online Processing Fee plus optional $30 rush is charged now (`priceOrder`). Government / agency / shipping fees are charged separately later via the stored card and never enter the order total. The old all-inclusive bundle formula was removed from pricing, sessions, and all UI.

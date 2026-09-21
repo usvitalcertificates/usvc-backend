@@ -20,7 +20,7 @@ Scope locked 2026-09-21: Phase 1 = public APIs to Lovable parity. Phase 2 = full
 - [ ] Harden `POST /orders/tracking` — publicNumber + email only, sanitized projection
 - [ ] Anti-abuse: HMAC hash IP/email/order/session + rate-limit order creation
 - [ ] Stripe isolation: add `PAYMENT_ENVIRONMENT`, `STRIPE_{LIVE,TEST}_*`, fail-closed prefix checks, 1 live webhook with 3 events
-- [ ] Email: Resend/SES order-confirmation send on webhook `succeeded` only (port template)
+- [x] Email: durable Resend order confirmation queued by paid Stripe webhooks, with provider idempotency, retry leasing, staging recipient override, and branded HTML/text templates — done 2026-09-22
 - [ ] GA4: server purchase outbox + retry endpoint (secret-gated)
 - [ ] Proof: `npm run build && npm test` passes
 
