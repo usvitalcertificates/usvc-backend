@@ -5,6 +5,15 @@ import { priceOrder } from "./orders.js";
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ZIP_PATTERN = /^(\d{5}(-\d{4})?|[A-Za-z0-9][A-Za-z0-9 -]{1,18})$/;
 const SSN_PATTERN = /^\d{3}-?\d{2}-?\d{4}$/;
+const REMOVED_NAME_HISTORY_SUBJECT_KEYS = new Set([
+  "subjectNameChanged",
+  "subjectSpelling",
+  "previousFirstName",
+  "previousMiddleName",
+  "previousLastName",
+  "nameChangeContext",
+  "alternateSpelling",
+]);
 
 /** Per-state county/city datasets copied from the reference project. */
 interface GeoCounty {
@@ -71,6 +80,7 @@ export const createOrderSchema = z.object({
     relationship: z.string().min(1).max(160),
     relationshipOther: z.string().max(160).optional().default(""),
     firstName: z.string().min(1).max(120),
+    middleName: z.string().max(120).optional().default(""),
     lastName: z.string().min(1).max(120),
     previousLastName: z.string().max(120).optional().default(""),
     dateOfBirth: z.string().max(20).optional().default(""),
@@ -79,7 +89,14 @@ export const createOrderSchema = z.object({
   }),
   /** Requestor SSN. Encrypted into the isolated vault on receipt; never stored on the order. */
   requestorSsn: z.string().max(20).optional().default(""),
-  subject: z.record(z.string(), z.string()).default({}),
+  subject: z
+    .record(z.string(), z.string())
+    .default({})
+    .transform((subject) =>
+      Object.fromEntries(
+        Object.entries(subject).filter(([key]) => !REMOVED_NAME_HISTORY_SUBJECT_KEYS.has(key)),
+      ),
+    ),
   family: z.record(z.string(), z.string()).default({}),
   addresses: z.object({
     home: addressSchema,
@@ -121,7 +138,7 @@ export type CreateOrderInput = z.infer<typeof createOrderSchema>;
 /** Required subject/family keys per certificate, ported from reference form-config. */
 const REQUIRED: Record<CreateOrderInput["certificate"], { subject: string[]; family: string[] }> = {
   BIRTH: {
-    subject: ["firstName", "lastName", "eventDate"],
+    subject: ["firstName", "lastName", "suffix", "eventDate"],
     family: ["motherFirstName", "motherCurrentLastName", "motherLastName"],
   },
   DEATH: { subject: ["firstName", "lastName", "eventDate"], family: [] },
@@ -205,6 +222,13 @@ export function validateOrderSubmission(input: CreateOrderInput): OrderValidatio
     if (input.subject["eventDate"] && !isValidDateString(input.subject["eventDate"]!)) {
       errors["subject.eventDate"] = "Please enter a valid date.";
     }
+    if (
+      (input.subject["sex"] ?? "").trim().toLowerCase() === "female" &&
+      !(input.subject["subjectMaidenLastName"] ?? "").trim()
+    ) {
+      errors["subject.subjectMaidenLastName"] =
+        "Maiden last name is required when the recorded gender is Female.";
+    }
   }
   if (input.certificate === "DEATH" || input.certificate === "MARRIAGE") {
     const date = input.subject["eventDate"] ?? "";
@@ -215,13 +239,14 @@ export function validateOrderSubmission(input: CreateOrderInput): OrderValidatio
       errors["subject.eventDate"] = "Please enter a valid date.";
   }
 
-  // California birth override: requestor DOB + SSN required identity safeguards.
+  // All birth applications require an SSN; California also requires the requestor DOB.
   const isCaliforniaBirth = input.stateCode === "CA" && input.certificate === "BIRTH";
+  if (input.certificate === "BIRTH" && !SSN_PATTERN.test((input.requestorSsn ?? "").trim())) {
+    errors["requestorSsn"] = "Social Security Number is required for birth records.";
+  }
   if (isCaliforniaBirth) {
     if (!isValidDateString(input.applicant.dateOfBirth ?? ""))
       errors["applicant.dateOfBirth"] = "Date of birth is required for California birth records.";
-    if (!SSN_PATTERN.test((input.requestorSsn ?? "").trim()))
-      errors["requestorSsn"] = "Social Security Number is required for California birth records.";
   } else if (input.requestorSsn && !SSN_PATTERN.test(input.requestorSsn.trim())) {
     errors["requestorSsn"] = "Please enter a valid Social Security Number.";
   }

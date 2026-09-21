@@ -41,6 +41,7 @@ const OrderSchema = new Schema(
       relationship: { type: String, required: true },
       relationshipOther: { type: String, default: "" },
       firstName: { type: String, required: true },
+      middleName: { type: String, default: "" },
       lastName: { type: String, required: true },
       previousLastName: { type: String, default: "" },
       dateOfBirth: { type: String, default: "" },
