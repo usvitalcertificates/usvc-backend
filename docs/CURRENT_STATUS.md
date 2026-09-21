@@ -1,6 +1,6 @@
 # Current backend status
 
-Last updated: 2026-09-21 (plaintext SSN per owner decision; vault removed; verified E2E vs local Mongo; birth-form requirements; legacy name-history fields removed).
+Last updated: 2026-09-21 (Node.js 24 LTS; plaintext SSN per owner decision; vault removed; verified E2E vs local Mongo; birth-form requirements; legacy name-history fields removed).
 
 ## Implemented
 
