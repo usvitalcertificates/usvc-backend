@@ -24,9 +24,10 @@ Base URL in local development: `http://localhost:4000`.
 `POST /orders` accepts the full application (see `lib/order-validation.ts`
 `createOrderSchema`): state slug/code/name, certificate, geo county/city,
 reason, applicant, optional `requestorSsn`, per-cert `subject`/`family`,
-home/shipping/billing `addresses`, destination type, copies 1–5, rush,
-delivery method, six consents + signature, anti-abuse block, and display
-`totalCents` (recomputed server-side; mismatch is rejected with 422).
+home/shipping/billing `addresses`, destination type, copies 1–20, rush,
+delivery method, consents + payment authorization, signature, card details,
+anti-abuse block, and display
+`totalCents` (recomputed server-side as processing + rush only; mismatch is rejected with 422).
 
 It returns an order id, a public order number, and the server-calculated `amountCents`. The browser must not supply an amount. SSN and payment-card details are stored as plaintext on the order per owner requirement and never appear in responses.
 

@@ -87,7 +87,7 @@ export const createOrderSchema = z.object({
     billing: addressSchema,
   }),
   destinationType: z.enum(["domestic", "international"]).default("domestic"),
-  copies: z.number().int().min(1).max(5),
+  copies: z.number().int().min(1).max(20),
   rush: z.boolean().default(false),
   deliveryMethod: z.string().max(80).default("regular"),
   consents: z.object({
@@ -154,7 +154,7 @@ function luhnValid(digits: string): boolean {
   return sum % 10 === 0;
 }
 
-/** Visa (^4) or Mastercard (^5, 16 digits) with valid Luhn. */
+/** Visa (^4, 16 digits) or Mastercard (^5, 16 digits) with valid Luhn. */
 export function isAcceptedCardNumber(value: string): boolean {
   const digits = value.replace(/[\s-]/g, "");
   if (!/^\d{16}$/.test(digits)) return false;
@@ -288,10 +288,9 @@ export function validateOrderSubmission(input: CreateOrderInput): OrderValidatio
   return { ok: Object.keys(errors).length === 0, errors };
 }
 
-export function pricingBreakdown(copies: number, rush: boolean, international: boolean) {
+export function pricingBreakdown(copies: number, rush: boolean, _international: boolean) {
   const serviceCents = 12500 * copies;
-  const bundleCents = (international ? 13300 : 11300) * copies;
   const rushCents = rush ? 3000 : 0;
-  const totalCents = serviceCents + bundleCents + rushCents;
-  return { serviceCents, bundleCents, rushCents, totalCents };
+  const totalCents = serviceCents + rushCents;
+  return { serviceCents, rushCents, totalCents };
 }
