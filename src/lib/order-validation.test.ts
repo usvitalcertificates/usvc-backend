@@ -24,6 +24,7 @@ function base(certificate: "BIRTH" | "DEATH" | "MARRIAGE" | "DIVORCE" = "BIRTH")
       phone: "555-0100",
       email: "jane@example.com",
     },
+    requestorSsn: "123-45-6789",
     addresses: {
       home: { line1: "1 Main St", city: "Birmingham", state: "AL", postalCode: "35203" },
       shipping: { line1: "1 Main St", city: "Birmingham", state: "AL", postalCode: "35203" },
@@ -54,7 +55,7 @@ function base(certificate: "BIRTH" | "DEATH" | "MARRIAGE" | "DIVORCE" = "BIRTH")
 
 const SUBJECTS = {
   BIRTH: {
-    subject: { firstName: "Baby", lastName: "Doe", eventDate: "2020-01-15" },
+    subject: { firstName: "Baby", lastName: "Doe", suffix: "None", eventDate: "2020-01-15" },
     family: {
       motherFirstName: "Jane",
       motherCurrentLastName: "Doe",
@@ -80,6 +81,28 @@ for (const cert of ["BIRTH", "DEATH", "MARRIAGE", "DIVORCE"] as const) {
     assert.equal(result.ok, true, JSON.stringify(result.errors));
   });
 }
+
+test("removes legacy name-history and alternate-spelling subject fields", () => {
+  const input = createOrderSchema.parse({
+    ...base("BIRTH"),
+    ...SUBJECTS.BIRTH,
+    subject: {
+      ...SUBJECTS.BIRTH.subject,
+      subjectNameChanged: "Yes",
+      subjectSpelling: "Yes",
+      previousFirstName: "Old",
+      previousMiddleName: "Name",
+      previousLastName: "Doe",
+      nameChangeContext: "Marriage",
+      alternateSpelling: "Doh",
+    },
+  });
+  assert.equal(input.subject["subjectNameChanged"], undefined);
+  assert.equal(input.subject["subjectSpelling"], undefined);
+  assert.equal(input.subject["previousLastName"], undefined);
+  assert.equal(input.subject["alternateSpelling"], undefined);
+  assert.equal(input.subject["firstName"], "Baby");
+});
 
 test("rejects missing required birth fields", () => {
   const input = createOrderSchema.parse({
@@ -129,6 +152,7 @@ test("requires SSN and DOB for California birth records", () => {
     stateName: "California",
     county: "Los Angeles",
     city: "Los Angeles",
+    requestorSsn: "",
   });
   const result = validateOrderSubmission(input);
   assert.equal(result.ok, false);
