@@ -20,6 +20,10 @@ const contactSubmissionLimiter = rateLimit({
 
 export const contactRouter = Router();
 
+export function contactOutboxCreateOptions(session: mongoose.ClientSession) {
+  return { session, ordered: true as const };
+}
+
 contactRouter.post("/", contactSubmissionLimiter, async (req, res, next) => {
   try {
     const input = contactSubmissionSchema.parse(req.body);
@@ -68,7 +72,7 @@ contactRouter.post("/", contactSubmissionLimiter, async (req, res, next) => {
               template: "CONTACT_CUSTOMER_RECEIPT",
             },
           ],
-          { session },
+          contactOutboxCreateOptions(session),
         );
       });
     } finally {

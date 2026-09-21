@@ -5,6 +5,7 @@ import {
   hasSensitiveContactContent,
   isContactSubmissionSuspicious,
 } from "./contact-validation.js";
+import { contactOutboxCreateOptions } from "../routes/contact.js";
 
 test("accepts and normalizes a valid contact submission", () => {
   const submission = contactSubmissionSchema.parse({
@@ -39,4 +40,11 @@ test("flags a bot field or implausibly fast contact submission", () => {
     true,
   );
   assert.equal(isContactSubmissionSuspicious({ honeypot: "", formStartedAt: Date.now() }), true);
+});
+
+test("uses ordered multi-document inserts inside the contact transaction", () => {
+  const session = {} as never;
+  const options = contactOutboxCreateOptions(session);
+  assert.equal(options.session, session);
+  assert.equal(options.ordered, true);
 });

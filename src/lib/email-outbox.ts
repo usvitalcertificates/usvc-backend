@@ -33,7 +33,7 @@ async function leaseNextMessage(now: Date) {
       $set: { status: "SENDING", leaseExpiresAt: new Date(now.getTime() + LEASE_MS) },
       $inc: { attempts: 1 },
     },
-    { new: true, sort: { nextAttemptAt: 1 } },
+    { returnDocument: "after", sort: { nextAttemptAt: 1 } },
   );
 }
 
