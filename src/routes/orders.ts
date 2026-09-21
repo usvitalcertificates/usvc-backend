@@ -5,6 +5,7 @@ import { env } from "../config/env.js";
 import { orderNumber, priceOrder } from "../lib/orders.js";
 import {
   createOrderSchema,
+  isCountyTemporarilyUnavailable,
   pricingBreakdown,
   validateGeoSelection,
   validateOrderSubmission,
@@ -48,7 +49,6 @@ ordersRouter.post("/", async (req, res, next) => {
         firstName: input.applicant.firstName,
         middleName: input.applicant.middleName ?? "",
         lastName: input.applicant.lastName,
-        previousLastName: input.applicant.previousLastName ?? "",
         dateOfBirth: input.applicant.dateOfBirth ?? "",
         phone: input.applicant.phone,
         email: input.applicant.email,
@@ -162,6 +162,11 @@ ordersRouter.post("/:id/checkout-session", async (req, res, next) => {
     const id = z.string().min(1).parse(req.params.id);
     const order = await Order.findById(id);
     if (!order) throw new ApiError(404, "Order not found");
+    if (isCountyTemporarilyUnavailable(order.stateCode, order.geo.county))
+      throw new ApiError(
+        422,
+        "Certificate issuance is currently unavailable through this county authority.",
+      );
     if (order.paymentStatus === "PAID")
       return res.json({
         alreadyPaid: true as const,
