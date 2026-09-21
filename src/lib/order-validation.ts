@@ -82,10 +82,6 @@ const addressSchema = z.object({
 });
 
 export const createOrderSchema = z.object({
-  antiAbuse: z.object({
-    honeypot: z.string().max(200).default(""),
-    formStartedAt: z.number().int().nonnegative(),
-  }),
   stateSlug: z.string().min(1).max(80),
   stateCode: z
     .string()
@@ -321,12 +317,6 @@ export function validateOrderSubmission(input: CreateOrderInput): OrderValidatio
   if (!/^\d{3}$/.test(input.paymentCard.securityCode.trim())) {
     errors["paymentCard.securityCode"] = "Please enter the 3-digit code on the back of the card.";
   }
-
-  // Anti-abuse: honeypot must stay empty; absurdly fast submits are bots.
-  if (input.antiAbuse.honeypot) errors["antiAbuse"] = "Invalid submission.";
-  const elapsed = Date.now() - input.antiAbuse.formStartedAt;
-  if (elapsed < 2000)
-    errors["antiAbuse"] = "Please take a moment to review the form before submitting.";
 
   // Server recomputes the charge; never trusts the client total.
   const expected = priceOrder(input.copies, input.rush, input.destinationType === "international");
