@@ -10,6 +10,7 @@ Scope locked 2026-09-21: Phase 1 = public APIs to Lovable parity. Phase 2 = full
 - [x] Birth-form contract: required SSN/suffix and female maiden-name validation; optional requestor middle name — done 2026-09-21
 - [x] Removed legacy name-history and alternate-spelling subject fields from the public order contract — done 2026-09-21
 - [x] Removed the legacy requestor previous-last-name field from the public order contract and persistence model — done 2026-09-21
+- [x] Temporarily blocked nine California counties during order validation and before Stripe Checkout Session creation — done 2026-09-22
 - [ ] Payment go-live hardening (deferred): PAYMENT_ENVIRONMENT + STRIPE_TEST__/STRIPE_LIVE__ isolation with fail-closed checks, livemode assertion on sessions, https return-url guard in live, docs/GO_LIVE.md runbook (dashboard webhook + key-swap + verification + rollback)
 - [x] `POST /orders/verify-before-payment` dry-run + `GET /orders/geo/:stateCode` — done 2026-09-21
 - [x] Mongoose full switch (driver removed; `src/models/`, `src/lib/db.ts`) — done 2026-09-21
