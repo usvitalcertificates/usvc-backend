@@ -1,0 +1,12 @@
+# dependencies
+node_modules/
+
+# build output + copied geo data
+dist/
+
+# env (never commit secrets)
+.env
+
+# system
+.DS_Store
+tsconfig.tsbuildinfo

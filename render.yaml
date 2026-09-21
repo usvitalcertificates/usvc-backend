@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: usvc-api
+    runtime: node
+    rootDir: usvc-backend
+    buildCommand: npm ci && npm run build
+    startCommand: npm run start
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 26
