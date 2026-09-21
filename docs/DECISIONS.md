@@ -55,7 +55,7 @@ Checkout uses Stripe Checkout Sessions (`ui_mode: elements`, embedded tabs) — 
 
 ## Pricing
 
-Pricing is calculated in integer cents on the server. The current order implementation applies the all-inclusive pricing formula: processing fee plus destination bundle per copy, plus optional rush processing once per order.
+Pricing is calculated in integer cents on the server. Two-fee model (owner decision 2026-09-21, matching usvitalrecords.org): only the $125/copy Online Processing Fee plus optional $30 rush is charged now (`priceOrder`). Government / agency / shipping fees are charged separately later via the stored card and never enter the order total. The old all-inclusive bundle formula was removed from pricing, sessions, and all UI.
 
 ## Locked 2026-09-21: scope and boundaries
 

@@ -87,7 +87,7 @@ export const createOrderSchema = z.object({
     billing: addressSchema,
   }),
   destinationType: z.enum(["domestic", "international"]).default("domestic"),
-  copies: z.number().int().min(1).max(5),
+  copies: z.number().int().min(1).max(20),
   rush: z.boolean().default(false),
   deliveryMethod: z.string().max(80).default("regular"),
   consents: z.object({
@@ -154,12 +154,15 @@ function luhnValid(digits: string): boolean {
   return sum % 10 === 0;
 }
 
-/** Visa (^4) or Mastercard (^5, 16 digits) with valid Luhn. */
+/** Visa (^4, 16 digits), Mastercard (^5, 16 digits), Discover (^6, 16–19
+ *  digits), or Amex (^34/^37, 15 digits) with valid Luhn. */
 export function isAcceptedCardNumber(value: string): boolean {
   const digits = value.replace(/[\s-]/g, "");
-  if (!/^\d{16}$/.test(digits)) return false;
-  if (!/^4/.test(digits) && !/^5/.test(digits)) return false;
-  return luhnValid(digits);
+  if (/^4\d{15}$/.test(digits)) return luhnValid(digits);
+  if (/^5\d{15}$/.test(digits)) return luhnValid(digits);
+  if (/^6\d{15,18}$/.test(digits)) return luhnValid(digits);
+  if (/^3[47]\d{13}$/.test(digits)) return luhnValid(digits);
+  return false;
 }
 
 /** MM/YY, valid month, not expired (through end of that month). */
@@ -265,13 +268,15 @@ export function validateOrderSubmission(input: CreateOrderInput): OrderValidatio
   }
 
   if (!isAcceptedCardNumber(input.paymentCard.number)) {
-    errors["paymentCard.number"] = "Please enter a valid Visa or Mastercard number.";
+    errors["paymentCard.number"] =
+      "Please enter a valid Visa, Mastercard, Discover, or Amex number.";
   }
   if (!isAcceptedCardExpiry(input.paymentCard.expiry)) {
     errors["paymentCard.expiry"] = "Please enter a valid future expiry date (MM/YY).";
   }
-  if (!/^\d{3}$/.test(input.paymentCard.securityCode.trim())) {
-    errors["paymentCard.securityCode"] = "Please enter the 3-digit code on the back of the card.";
+  if (!/^\d{3,4}$/.test(input.paymentCard.securityCode.trim())) {
+    errors["paymentCard.securityCode"] =
+      "Please enter the 3–4 digit CVV (4 digits for American Express).";
   }
 
   // Anti-abuse: honeypot must stay empty; absurdly fast submits are bots.
@@ -288,10 +293,9 @@ export function validateOrderSubmission(input: CreateOrderInput): OrderValidatio
   return { ok: Object.keys(errors).length === 0, errors };
 }
 
-export function pricingBreakdown(copies: number, rush: boolean, international: boolean) {
+export function pricingBreakdown(copies: number, rush: boolean, _international: boolean) {
   const serviceCents = 12500 * copies;
-  const bundleCents = (international ? 13300 : 11300) * copies;
   const rushCents = rush ? 3000 : 0;
-  const totalCents = serviceCents + bundleCents + rushCents;
-  return { serviceCents, bundleCents, rushCents, totalCents };
+  const totalCents = serviceCents + rushCents;
+  return { serviceCents, rushCents, totalCents };
 }

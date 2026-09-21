@@ -57,7 +57,7 @@ const OrderSchema = new Schema(
       billing: { type: AddressSchema, default: {} },
     },
     destinationType: { type: String, enum: ["domestic", "international"], default: "domestic" },
-    copies: { type: Number, required: true, min: 1, max: 5 },
+    copies: { type: Number, required: true, min: 1, max: 20 },
     rush: { type: Boolean, default: false },
     deliveryMethod: { type: String, default: "regular" },
     consents: {
@@ -92,7 +92,6 @@ const OrderSchema = new Schema(
     },
     pricing: {
       serviceCents: { type: Number, required: true },
-      bundleCents: { type: Number, required: true },
       rushCents: { type: Number, required: true },
       totalCents: { type: Number, required: true },
     },
