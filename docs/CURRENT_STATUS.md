@@ -1,6 +1,6 @@
 # Current backend status
 
-Last updated: 2026-09-21 (plaintext SSN per owner decision; vault removed; verified E2E vs local Mongo).
+Last updated: 2026-09-21 (plaintext SSN per owner decision; vault removed; verified E2E vs local Mongo; Node.js 24 LTS).
 
 ## Implemented
 
