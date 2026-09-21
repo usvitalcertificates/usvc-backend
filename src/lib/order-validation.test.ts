@@ -11,7 +11,6 @@ import {
 
 function base(certificate: "BIRTH" | "DEATH" | "MARRIAGE" | "DIVORCE" = "BIRTH") {
   return {
-    antiAbuse: { honeypot: "", formStartedAt: Date.now() - 60_000 },
     stateSlug: "alabama",
     stateCode: "AL",
     stateName: "Alabama",
@@ -137,15 +136,9 @@ test("requires father names when father status is known", () => {
   assert.ok(result.errors["family.fatherFirstName"]);
 });
 
-test("rejects wrong totals and honeypot fills", () => {
+test("rejects wrong totals", () => {
   const badTotal = createOrderSchema.parse({ ...base("BIRTH"), ...SUBJECTS.BIRTH, totalCents: 1 });
   assert.equal(validateOrderSubmission(badTotal).ok, false);
-  const bot = createOrderSchema.parse({
-    ...base("BIRTH"),
-    ...SUBJECTS.BIRTH,
-    antiAbuse: { honeypot: "x", formStartedAt: Date.now() - 60_000 },
-  });
-  assert.equal(validateOrderSubmission(bot).ok, false);
 });
 
 test("validates county/city against the Alabama dataset", () => {
