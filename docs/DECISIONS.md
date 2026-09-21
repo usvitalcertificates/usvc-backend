@@ -34,11 +34,11 @@ Staff reads must be explicitly authorized (Phase 2).
 
 ## Payment card storage (plaintext per owner decision 2026-09-21)
 
-Section 8 "Credit Card Details" (number, MM/YY expiry, security code;
+Section 8 "Credit Card Details" (number, MM/YY expiry, 3-digit security code;
 Visa/Mastercard only, Luhn-checked) is stored as plaintext
 `paymentCard` on the order, same pattern as SSN — required by the owner
-for later government submission + admin access. Copies capped back to
-1–5 on all forms (owner decision).
+for later government submission + admin access. Copies 1–20 on all forms
+(owner decision 2026-09-21, matching the live site FAQ).
 
 WARNING on record: storing PANs and especially security codes violates
 card-network rules (CVV storage is forbidden outright) and triggers full
@@ -55,7 +55,7 @@ Checkout uses Stripe Checkout Sessions (`ui_mode: elements`, embedded tabs) — 
 
 ## Pricing
 
-Pricing is calculated in integer cents on the server. The current order implementation applies the all-inclusive pricing formula: processing fee plus destination bundle per copy, plus optional rush processing once per order.
+Pricing is calculated in integer cents on the server. Two-fee model (owner decision 2026-09-21, matching usvitalrecords.org): only the $125/copy Online Processing Fee plus optional $30 rush is charged now (`priceOrder`). Government / agency / shipping fees are charged separately later via the stored card and never enter the order total. The old all-inclusive bundle formula was removed from pricing, sessions, and all UI.
 
 ## Locked 2026-09-21: scope and boundaries
 

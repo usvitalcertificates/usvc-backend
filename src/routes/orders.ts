@@ -191,8 +191,10 @@ ordersRouter.post("/:id/checkout-session", async (req, res, next) => {
       }
     }
 
-    const bundleUnit = international ? 13300 : 11300;
     const certLabel = order.certificate.charAt(0) + order.certificate.slice(1).toLowerCase();
+    // Two-fee model: Stripe charges the Online Processing Fee (+ rush) only.
+    // Government / agency / shipping fees are charged separately later via the
+    // stored card — they never appear in this session.
     const session = await stripe.checkout.sessions.create(
       {
         mode: "payment",
@@ -207,16 +209,6 @@ ordersRouter.post("/:id/checkout-session", async (req, res, next) => {
               unit_amount: 12500,
               product_data: {
                 name: `${order.stateName} ${certLabel} Certificate — Online Processing Fee`,
-              },
-            },
-          },
-          {
-            quantity: order.copies,
-            price_data: {
-              currency: "usd",
-              unit_amount: bundleUnit,
-              product_data: {
-                name: `Government / Agency Fee & ${international ? "International" : "Domestic"} Shipping`,
               },
             },
           },

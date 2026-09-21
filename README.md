@@ -16,7 +16,7 @@ Staff administration, invitations, refresh/logout endpoints, MFA enrollment, ful
 
 ## Requirements
 
-- Node.js 26.9.0 or later (as declared in `package.json`).
+- Node.js 24.x (LTS, as declared in `package.json`).
 - A MongoDB Atlas cluster or another MongoDB replica set. Replica-set support is required for webhook transactions.
 - Stripe test keys for local development.
 
@@ -37,4 +37,5 @@ Documentation:
 - [Deployment](docs/DEPLOYMENT.md)
 - [Architecture decisions](docs/DECISIONS.md)
 - [Current status and data boundaries](docs/CURRENT_STATUS.md)
+
 # usvc-backend
