@@ -7,9 +7,14 @@ const models = mongoose.models as Record<string, any>;
 const EmailOutboxSchema = new Schema(
   {
     _id: { type: String, required: true },
-    orderId: { type: Schema.Types.ObjectId, required: true, index: true },
+    orderId: { type: Schema.Types.ObjectId, index: true },
+    contactMessageId: { type: Schema.Types.ObjectId, index: true },
     recipient: { type: String, required: true },
-    template: { type: String, enum: ["PAYMENT_CONFIRMATION"], required: true },
+    template: {
+      type: String,
+      enum: ["PAYMENT_CONFIRMATION", "CONTACT_SUPPORT_NOTIFICATION", "CONTACT_CUSTOMER_RECEIPT"],
+      required: true,
+    },
     status: {
       type: String,
       enum: ["PENDING", "SENDING", "SENT", "FAILED"],
