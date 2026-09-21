@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { Order } from "../models/order.js";
 import {
+  COUNTY_UNAVAILABLE_MESSAGE,
   createOrderSchema,
+  isCountyTemporarilyUnavailable,
   validateGeoSelection,
   validateOrderSubmission,
 } from "./order-validation.js";
@@ -150,6 +152,24 @@ test("validates county/city against the Alabama dataset", () => {
   assert.equal(validateGeoSelection("AL", "Jefferson", "Birmingham"), true);
   assert.equal(validateGeoSelection("AL", "Nope", "Birmingham"), false);
   assert.equal(validateGeoSelection("AL", "Jefferson", "Nowhere"), false);
+});
+
+test("blocks temporarily unavailable California counties", () => {
+  const input = createOrderSchema.parse({
+    ...base("BIRTH"),
+    ...SUBJECTS.BIRTH,
+    stateSlug: "california",
+    stateCode: "CA",
+    stateName: "California",
+    county: "San Francisco",
+    city: "San Francisco",
+  });
+  const result = validateOrderSubmission(input);
+  assert.equal(result.ok, false);
+  assert.equal(result.errors["county"], COUNTY_UNAVAILABLE_MESSAGE);
+  assert.equal(isCountyTemporarilyUnavailable("CA", "Santa Barbara"), true);
+  assert.equal(isCountyTemporarilyUnavailable("CA", "Los Angeles"), false);
+  assert.equal(isCountyTemporarilyUnavailable("AL", "Lake"), false);
 });
 
 test("requires SSN and DOB for California birth records", () => {

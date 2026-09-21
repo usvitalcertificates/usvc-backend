@@ -14,6 +14,27 @@ const REMOVED_NAME_HISTORY_SUBJECT_KEYS = new Set([
   "nameChangeContext",
   "alternateSpelling",
 ]);
+const TEMPORARILY_UNAVAILABLE_CALIFORNIA_COUNTIES = new Set([
+  "san francisco",
+  "san bernardino",
+  "yolo",
+  "riverside",
+  "del norte",
+  "lake",
+  "sutter",
+  "kings",
+  "santa barbara",
+]);
+
+export const COUNTY_UNAVAILABLE_MESSAGE =
+  "Certificate issuance is currently unavailable through this county authority. Please select a different county.";
+
+export function isCountyTemporarilyUnavailable(stateCode: string, county: string): boolean {
+  return (
+    stateCode.toUpperCase() === "CA" &&
+    TEMPORARILY_UNAVAILABLE_CALIFORNIA_COUNTIES.has(county.trim().toLowerCase())
+  );
+}
 
 /** Per-state county/city datasets copied from the reference project. */
 interface GeoCounty {
@@ -265,6 +286,9 @@ export function validateOrderSubmission(input: CreateOrderInput): OrderValidatio
 
   if (!validateGeoSelection(input.stateCode, input.county, input.city)) {
     errors["county"] = "Please select a valid county and city for this state.";
+  }
+  if (isCountyTemporarilyUnavailable(input.stateCode, input.county)) {
+    errors["county"] = COUNTY_UNAVAILABLE_MESSAGE;
   }
 
   const c = input.consents;
