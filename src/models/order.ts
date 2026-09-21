@@ -43,7 +43,6 @@ const OrderSchema = new Schema(
       firstName: { type: String, required: true },
       middleName: { type: String, default: "" },
       lastName: { type: String, required: true },
-      previousLastName: { type: String, default: "" },
       dateOfBirth: { type: String, default: "" },
       phone: { type: String, required: true },
       email: { type: String, required: true },

@@ -82,7 +82,6 @@ export const createOrderSchema = z.object({
     firstName: z.string().min(1).max(120),
     middleName: z.string().max(120).optional().default(""),
     lastName: z.string().min(1).max(120),
-    previousLastName: z.string().max(120).optional().default(""),
     dateOfBirth: z.string().max(20).optional().default(""),
     phone: z.string().min(1).max(40),
     email: z.string().min(1).max(255),
