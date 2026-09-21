@@ -8,4 +8,4 @@ services:
     healthCheckPath: /health
     envVars:
       - key: NODE_VERSION
-        value: 26
+        value: 24
