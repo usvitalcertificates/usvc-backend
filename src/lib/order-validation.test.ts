@@ -104,6 +104,15 @@ test("removes legacy name-history and alternate-spelling subject fields", () => 
   assert.equal(input.subject["firstName"], "Baby");
 });
 
+test("removes the legacy requestor previous-last-name field", () => {
+  const input = createOrderSchema.parse({
+    ...base("BIRTH"),
+    ...SUBJECTS.BIRTH,
+    applicant: { ...base("BIRTH").applicant, previousLastName: "Doe" },
+  });
+  assert.equal("previousLastName" in input.applicant, false);
+});
+
 test("rejects missing required birth fields", () => {
   const input = createOrderSchema.parse({
     ...base("BIRTH"),
