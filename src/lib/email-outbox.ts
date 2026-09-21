@@ -1,7 +1,9 @@
 import { Resend } from "resend";
 import { env } from "../config/env.js";
+import { ContactMessage } from "../models/contact-message.js";
 import { EmailOutbox } from "../models/email-outbox.js";
 import { Order } from "../models/order.js";
+import { renderContactCustomerReceipt, renderContactSupportEmail } from "./contact-email.js";
 import { renderPaymentConfirmationEmail } from "./payment-confirmation-email.js";
 
 const MAX_ATTEMPTS = 10;
@@ -41,25 +43,40 @@ export async function processNextEmail(): Promise<boolean> {
   if (!message) return false;
 
   try {
-    const order = await Order.findById(message.orderId).lean();
-    if (!order) throw new Error("Order for confirmation email no longer exists");
-    const email = renderPaymentConfirmationEmail(
-      {
-        publicNumber: order.publicNumber,
-        stateName: order.stateName,
-        certificate: order.certificate,
-        copies: order.copies,
-        pricing: order.pricing,
-      },
-      env.FRONTEND_URL,
-    );
+    let email: { subject: string; html: string; text: string };
+    let replyTo: string;
+    if (message.template === "PAYMENT_CONFIRMATION") {
+      const order = await Order.findById(message.orderId).lean();
+      if (!order) throw new Error("Order for confirmation email no longer exists");
+      email = renderPaymentConfirmationEmail(
+        {
+          publicNumber: order.publicNumber,
+          stateName: order.stateName,
+          certificate: order.certificate,
+          copies: order.copies,
+          pricing: order.pricing,
+        },
+        env.FRONTEND_URL,
+      );
+      replyTo = env.EMAIL_REPLY_TO!;
+    } else {
+      const contact = await ContactMessage.findById(message.contactMessageId).lean();
+      if (!contact) throw new Error("Contact message for email no longer exists");
+      if (message.template === "CONTACT_SUPPORT_NOTIFICATION") {
+        email = renderContactSupportEmail(contact);
+        replyTo = contact.email;
+      } else {
+        email = renderContactCustomerReceipt(contact);
+        replyTo = env.EMAIL_REPLY_TO!;
+      }
+    }
     const recipient = env.EMAIL_RECIPIENT_OVERRIDE ?? message.recipient;
     const resend = new Resend(env.RESEND_API_KEY!);
     const result = await resend.emails.send(
       {
         from: env.EMAIL_FROM!,
         to: recipient,
-        replyTo: env.EMAIL_REPLY_TO!,
+        replyTo,
         subject: email.subject,
         html: email.html,
         text: email.text,
@@ -80,18 +97,7 @@ export async function processNextEmail(): Promise<boolean> {
         $unset: { leaseExpiresAt: 1, lastError: 1 },
       },
     );
-    await Order.updateOne(
-      { _id: message.orderId },
-      {
-        $push: {
-          auditEvents: {
-            action: "confirmation_email_sent",
-            metadata: { providerMessageId: result.data?.id },
-            createdAt: sentAt,
-          },
-        },
-      },
-    );
+    await recordEmailAudit(message, "sent", sentAt, { providerMessageId: result.data?.id });
   } catch (error) {
     const failedPermanently = message.attempts >= MAX_ATTEMPTS;
     const now = new Date();
@@ -107,20 +113,44 @@ export async function processNextEmail(): Promise<boolean> {
       },
     );
     if (failedPermanently)
-      await Order.updateOne(
-        { _id: message.orderId },
-        {
-          $push: {
-            auditEvents: {
-              action: "confirmation_email_failed",
-              metadata: { attempts: message.attempts },
-              createdAt: now,
-            },
-          },
-        },
-      );
+      await recordEmailAudit(message, "failed", now, { attempts: message.attempts });
   }
   return true;
+}
+
+async function recordEmailAudit(
+  message: { orderId?: unknown; contactMessageId?: unknown; template: string },
+  outcome: "sent" | "failed",
+  createdAt: Date,
+  metadata: Record<string, unknown>,
+): Promise<void> {
+  if (message.orderId) {
+    await Order.updateOne(
+      { _id: message.orderId },
+      {
+        $push: {
+          auditEvents: {
+            action: outcome === "sent" ? "confirmation_email_sent" : "confirmation_email_failed",
+            metadata,
+            createdAt,
+          },
+        },
+      },
+    );
+    return;
+  }
+  await ContactMessage.updateOne(
+    { _id: message.contactMessageId },
+    {
+      $push: {
+        emailEvents: {
+          action: outcome === "sent" ? "contact_email_sent" : "contact_email_failed",
+          metadata: { ...metadata, template: message.template },
+          createdAt,
+        },
+      },
+    },
+  );
 }
 
 async function drain(): Promise<void> {
