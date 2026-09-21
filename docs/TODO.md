@@ -6,7 +6,7 @@ Scope locked 2026-09-21: Phase 1 = public APIs to Lovable parity. Phase 2 = full
 
 - [x] Full order contract (`POST /orders` validates + stores applicant/subject/family/addresses/geo/consents; copies 1–20; server pricing) — done 2026-09-21, E2E vs local Mongo
 - [x] SSN storage: plaintext on order per owner decision 2026-09-21 (vault + crypto + env key removed; test data cleaned; projections verified SSN-safe)
-- [x] Two-fee model (processing-only totals, bundle removed everywhere, copies 1–20, Visa/MC/Discover/Amex + 3–4 digit CVV) — done 2026-09-21, UI E2E all 4 types
+- [x] Two-fee model (processing-only totals, bundle removed everywhere, copies 1–20, Visa/MC + 3-digit CVV) — done 2026-09-21, UI E2E all 4 types
 - [ ] Payment go-live hardening (deferred): PAYMENT_ENVIRONMENT + STRIPE_TEST__/STRIPE_LIVE__ isolation with fail-closed checks, livemode assertion on sessions, https return-url guard in live, docs/GO_LIVE.md runbook (dashboard webhook + key-swap + verification + rollback)
 - [x] `POST /orders/verify-before-payment` dry-run + `GET /orders/geo/:stateCode` — done 2026-09-21
 - [x] Mongoose full switch (driver removed; `src/models/`, `src/lib/db.ts`) — done 2026-09-21

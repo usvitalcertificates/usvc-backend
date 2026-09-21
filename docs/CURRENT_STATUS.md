@@ -8,7 +8,7 @@ Last updated: 2026-09-21 (plaintext SSN per owner decision; vault removed; verif
 - `POST /orders` full contract with Zod + per-cert required maps + county→city geo validation + honeypot/timing anti-abuse + server-recomputed totals. SSN stored as plaintext on the order per owner requirement; public projections whitelist-exclude it (tested).
 - `POST /orders/verify-before-payment` (dry run), `GET /orders/geo/:stateCode`, staff login, tracking lookup (SSN/card-safe projection), signed idempotent Stripe webhooks via Mongoose transactions.
 - Checkout Sessions: `GET /orders/checkout-config`, `GET /orders/:id/summary` (whitelisted), `POST /orders/:id/checkout-session` (create/reuse, server total, 3 line items), `POST /orders/checkout-session/confirm` (Stripe-verified paid marking). PaymentIntent endpoint removed. Real $238 test payment verified end to end (embedded tabs → paid receipt, PAID/PAID + intent + audit).
-- 16 unit tests; E2E verified: two-fee totals (1-copy $125, 20-copy rush $2,530), 21-copy rejection, Amex/Discover + 3–4 digit CVV enforcement, CA-birth SSN/DOB requirement, payment-authorization consent + Other enforcement.
+- 16 unit tests; E2E verified: two-fee totals (1-copy $125, 20-copy rush $2,530), 21-copy rejection, Visa/MC + 3-digit CVV enforcement, CA-birth SSN/DOB requirement, payment-authorization consent + Other enforcement.
 
 - MongoDB Atlas connection using the official Node.js driver and Stable API settings.
 - Collections: `staff_users`, `orders`, `stripe_events`, `government_fees`, and `attendance_records`.

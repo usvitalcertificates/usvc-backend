@@ -193,11 +193,13 @@ test("validates card brand, Luhn, expiry, and CVV", () => {
   const good = createOrderSchema.parse({ ...base("BIRTH"), ...SUBJECTS.BIRTH });
   assert.equal(validateOrderSubmission(good).ok, true);
   for (const [patch, key] of [
+    [{ number: "378282246310005" }, "paymentCard.number"],
+    [{ number: "6011111111111117" }, "paymentCard.number"],
     [{ number: "4111111111111112" }, "paymentCard.number"],
     [{ expiry: "01/20" }, "paymentCard.expiry"],
     [{ expiry: "13/30" }, "paymentCard.expiry"],
     [{ securityCode: "12" }, "paymentCard.securityCode"],
-    [{ securityCode: "12345" }, "paymentCard.securityCode"],
+    [{ securityCode: "1234" }, "paymentCard.securityCode"],
   ] as const) {
     const input = createOrderSchema.parse({
       ...base("BIRTH"),
@@ -214,15 +216,4 @@ test("validates card brand, Luhn, expiry, and CVV", () => {
     paymentCard: { number: "5555555555554444", expiry: "12/30", securityCode: "123" },
   });
   assert.equal(validateOrderSubmission(mc).ok, true);
-  for (const card of [
-    { number: "378282246310005", expiry: "12/30", securityCode: "1234" },
-    { number: "6011111111111117", expiry: "12/30", securityCode: "123" },
-  ]) {
-    const input = createOrderSchema.parse({
-      ...base("BIRTH"),
-      ...SUBJECTS.BIRTH,
-      paymentCard: card,
-    });
-    assert.equal(validateOrderSubmission(input).ok, true, JSON.stringify(card));
-  }
 });

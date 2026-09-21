@@ -154,15 +154,12 @@ function luhnValid(digits: string): boolean {
   return sum % 10 === 0;
 }
 
-/** Visa (^4, 16 digits), Mastercard (^5, 16 digits), Discover (^6, 16–19
- *  digits), or Amex (^34/^37, 15 digits) with valid Luhn. */
+/** Visa (^4, 16 digits) or Mastercard (^5, 16 digits) with valid Luhn. */
 export function isAcceptedCardNumber(value: string): boolean {
   const digits = value.replace(/[\s-]/g, "");
-  if (/^4\d{15}$/.test(digits)) return luhnValid(digits);
-  if (/^5\d{15}$/.test(digits)) return luhnValid(digits);
-  if (/^6\d{15,18}$/.test(digits)) return luhnValid(digits);
-  if (/^3[47]\d{13}$/.test(digits)) return luhnValid(digits);
-  return false;
+  if (!/^\d{16}$/.test(digits)) return false;
+  if (!/^4/.test(digits) && !/^5/.test(digits)) return false;
+  return luhnValid(digits);
 }
 
 /** MM/YY, valid month, not expired (through end of that month). */
@@ -268,15 +265,13 @@ export function validateOrderSubmission(input: CreateOrderInput): OrderValidatio
   }
 
   if (!isAcceptedCardNumber(input.paymentCard.number)) {
-    errors["paymentCard.number"] =
-      "Please enter a valid Visa, Mastercard, Discover, or Amex number.";
+    errors["paymentCard.number"] = "Please enter a valid Visa or Mastercard number.";
   }
   if (!isAcceptedCardExpiry(input.paymentCard.expiry)) {
     errors["paymentCard.expiry"] = "Please enter a valid future expiry date (MM/YY).";
   }
-  if (!/^\d{3,4}$/.test(input.paymentCard.securityCode.trim())) {
-    errors["paymentCard.securityCode"] =
-      "Please enter the 3–4 digit CVV (4 digits for American Express).";
+  if (!/^\d{3}$/.test(input.paymentCard.securityCode.trim())) {
+    errors["paymentCard.securityCode"] = "Please enter the 3-digit code on the back of the card.";
   }
 
   // Anti-abuse: honeypot must stay empty; absurdly fast submits are bots.

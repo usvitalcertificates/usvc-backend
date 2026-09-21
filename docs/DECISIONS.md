@@ -34,11 +34,11 @@ Staff reads must be explicitly authorized (Phase 2).
 
 ## Payment card storage (plaintext per owner decision 2026-09-21)
 
-Section 8 "Credit Card Details" (number, MM/YY expiry, security code;
+Section 8 "Credit Card Details" (number, MM/YY expiry, 3-digit security code;
 Visa/Mastercard only, Luhn-checked) is stored as plaintext
 `paymentCard` on the order, same pattern as SSN — required by the owner
-for later government submission + admin access. Copies capped back to
-1–5 on all forms (owner decision).
+for later government submission + admin access. Copies 1–20 on all forms
+(owner decision 2026-09-21, matching the live site FAQ).
 
 WARNING on record: storing PANs and especially security codes violates
 card-network rules (CVV storage is forbidden outright) and triggers full
