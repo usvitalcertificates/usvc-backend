@@ -36,6 +36,7 @@
     "jsonwebtoken": "latest",
     "mongoose": "^9.10.1",
     "otpauth": "latest",
+    "resend": "^6.28.1",
     "stripe": "^22.6.2",
     "zod": "latest"
   },
