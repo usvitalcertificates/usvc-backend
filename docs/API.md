@@ -17,7 +17,7 @@ Base URL in local development: `http://localhost:4000`.
 | POST   | `/orders/checkout-session/confirm`     | Verifies a session with Stripe; marks the order paid.                                                                     |
 | POST   | `/orders/:id/payment-intent`           | Creates a Stripe PaymentIntent for an existing unpaid order.                                                              |
 | POST   | `/orders/tracking`                     | Public lookup by `publicNumber` and `email`.                                                                              |
-| POST   | `/webhooks/stripe`                     | Stripe-only signed webhook endpoint. It is not a browser API.                                                             |
+| POST   | `/webhooks/stripe`                     | Stripe-only signed webhook endpoint. Paid events atomically queue one confirmation email; it is not a browser API.        |
 
 ## Order creation contract
 

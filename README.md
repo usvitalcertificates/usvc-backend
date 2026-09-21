@@ -9,6 +9,7 @@ The USVC backend is an Express 5 API written in TypeScript. It persists orders, 
 - Order creation with server-authoritative, integer-cent pricing.
 - Stripe PaymentIntent creation.
 - Signed, idempotent Stripe webhook handling using an Atlas transaction.
+- Durable Resend payment-confirmation email outbox with leasing, retries, and duplicate prevention.
 - Public order lookup by public order number and customer email.
 - MongoDB startup indexes for staff email, order number, payment intent, fees, and attendance.
 

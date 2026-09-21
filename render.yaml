@@ -9,3 +9,11 @@ services:
     envVars:
       - key: NODE_VERSION
         value: 24
+      - key: EMAIL_ENABLED
+        value: false
+      - key: EMAIL_FROM
+        value: US Vital Certificates <noreply@usvitalcertificates.org>
+      - key: EMAIL_REPLY_TO
+        value: support@usvitalcertificates.org
+      - key: RESEND_API_KEY
+        sync: false
