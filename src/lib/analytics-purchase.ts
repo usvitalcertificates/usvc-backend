@@ -5,6 +5,7 @@ export interface PurchaseDeliveryData {
   rushCents: number;
   currency: string;
   certificate: string;
+  stateCode?: string;
   copies: number;
   rush: boolean;
   clientId?: string;
@@ -27,6 +28,8 @@ export function buildPurchasePayload(delivery: PurchaseDeliveryData) {
           value: delivery.amountCents / 100,
           currency: delivery.currency.toUpperCase(),
           ...(delivery.sessionId ? { session_id: delivery.sessionId } : {}),
+          ...(delivery.stateCode ? { state_code: delivery.stateCode } : {}),
+          certificate: delivery.certificate,
           items: [
             {
               item_id: `usvc-${delivery.certificate.toLowerCase()}`,

@@ -58,6 +58,17 @@ Stripe owns payment credentials. USVC stores Stripe identifiers and permitted or
 
 Checkout uses Stripe Checkout Sessions (`ui_mode: elements`, embedded tabs) — one charge path only. The older PaymentIntent endpoint was removed to avoid dual charge paths. Session totals are recomputed server-side; open sessions are reused; confirmation always re-reads the session from Stripe. Webhooks handle `payment_intent.*` plus `checkout.session.completed` / `async_payment_failed`, all idempotent by event ID.
 
+## Order numbers (sequential plate format, locked 2026-09-23)
+
+Public order numbers are `US` + 2-letter state code, certificate type code
+(`BT`/`DT`/`MG`/`DV`), UTC `YYYYMMDD`, and a globally sequential 6-character
+plate suffix (`00A001` → `00A999` → `00B001` …, capacity 2,597,400 through
+`99Z999`), e.g. `USCA-BT-20260922-00A001`. The sequence comes from an atomic
+MongoDB `counters.orderSeq` increment (safe across concurrent orders and API
+instances); a duplicate-key conflict retries with the next sequence. All
+consumers (tracking, emails, GA4, Stripe metadata) treat the number as an
+opaque string. Pre-launch wipe resets the counter to 1.
+
 ## Transactional email
 
 Payment-confirmation email uses Resend and is triggered only by signed Stripe success webhooks, never by the browser redirect. The webhook transaction upserts a unique `payment-confirmation:{orderId}` MongoDB outbox record alongside the paid state. An in-process worker leases and retries delivery, and the same key is sent to Resend as its idempotency key. Staging requires a recipient override; production sends to the applicant email stored on the order.

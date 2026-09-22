@@ -10,6 +10,7 @@ test("builds a privacy-safe GA4 purchase payload with accurate items", () => {
     rushCents: 3000,
     currency: "usd",
     certificate: "BIRTH",
+    stateCode: "CA",
     copies: 2,
     rush: true,
   });
@@ -34,7 +35,23 @@ test("builds a privacy-safe GA4 purchase payload with accurate items", () => {
   assert.equal(payload.events[0]?.params.transaction_id, "USVC-BT-20260922-ABC123");
   assert.equal(payload.events[0]?.params.value, 280);
   assert.equal(payload.events[0]?.params.currency, "USD");
+  assert.equal(payload.events[0]?.params.state_code, "CA");
+  assert.equal(payload.events[0]?.params.certificate, "BIRTH");
   assert.doesNotMatch(JSON.stringify(payload), /email|phone|ssn|address|stripe|card/i);
+});
+
+test("omits state_code when the delivery has no state", () => {
+  const payload = buildPurchasePayload({
+    transactionId: "USVC-BT-20260922-ABC123",
+    amountCents: 12500,
+    serviceCents: 12500,
+    rushCents: 0,
+    currency: "usd",
+    certificate: "BIRTH",
+    copies: 1,
+    rush: false,
+  });
+  assert.ok(!("state_code" in (payload.events[0]?.params ?? {})));
 });
 
 test("caps GA4 retry delays at one hour", () => {

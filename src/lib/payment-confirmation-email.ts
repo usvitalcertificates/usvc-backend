@@ -37,6 +37,19 @@ export function renderPaymentConfirmationEmail(
   const rushText = order.pricing.rushCents
     ? `Rush Processing: ${money(order.pricing.rushCents)}\n`
     : "";
+  const isRush = order.pricing.rushCents > 0;
+  const workflowHtml = isRush
+    ? `<p style="margin:0 0 10px">Your application will be reviewed.</p>
+      <p style="margin:0 0 10px">If additional information is required we'll contact you.</p>
+      <p style="margin:0 0 10px">Your request will proceed through Rush channel if all the information provided meets the government criteria.</p>
+      <p style="margin:0 0 16px">You can use your order number to check your order status.</p>`
+    : `<p style="margin:0 0 10px">Your application will be reviewed.</p>
+      <p style="margin:0 0 10px">If additional information is needed, we'll contact you.</p>
+      <p style="margin:0 0 10px">Your request will proceed through the applicable processing workflow.</p>
+      <p style="margin:0 0 16px">You can use your order number to check your order status.</p>`;
+  const workflowText = isRush
+    ? `Your application will be reviewed.\nIf additional information is required we'll contact you.\nYour request will proceed through Rush channel if all the information provided meets the government criteria.\nYou can use your order number to check your order status.`
+    : `Your application will be reviewed.\nIf additional information is needed, we'll contact you.\nYour request will proceed through the applicable processing workflow.\nYou can use your order number to check your order status.`;
 
   const html = `<!doctype html>
 <html lang="en">
@@ -56,10 +69,7 @@ export function renderPaymentConfirmationEmail(
       <p style="margin:0"><strong>Amount Paid Today: ${money(order.pricing.totalCents)}</strong></p>
 
       <h2 style="margin:26px 0 12px;color:#3c3b6e;font-size:19px">What Happens Next</h2>
-      <p style="margin:0 0 10px">Your application will be reviewed for completeness.</p>
-      <p style="margin:0 0 10px">If additional information is needed, we'll contact you.</p>
-      <p style="margin:0 0 10px">Your request will proceed through the applicable processing workflow.</p>
-      <p style="margin:0 0 16px">You can use your order number to check your order status.</p>
+      ${workflowHtml}
       <p style="margin:0 0 22px"><a href="${escapeHtml(trackingUrl)}" style="display:inline-block;border-radius:4px;background:#b22234;color:#ffffff;padding:11px 20px;font-weight:bold;text-decoration:none">Track My Order</a></p>
       <p style="margin:0;color:#333333;font-size:13px">State and agency fees are handled separately from your online processing payment. USVC is an independent service and is not a government agency.</p>
     </main>
@@ -79,10 +89,7 @@ Online Processing Fee: ${money(order.pricing.serviceCents)}
 ${rushText}Amount Paid Today: ${money(order.pricing.totalCents)}
 
 What Happens Next
-Your application will be reviewed for completeness.
-If additional information is needed, we'll contact you.
-Your request will proceed through the applicable processing workflow.
-You can use your order number to check your order status.
+${workflowText}
 
 Track My Order: ${trackingUrl}
 
