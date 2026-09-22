@@ -427,7 +427,7 @@ ordersRouter.get("/:id/audit", requireAuth, async (req, res, next) => {
   }
 });
 
-const staffStatusSchema = z.object({ status: z.enum(["IN_REVIEW", "SUBMITTED", "COMPLETED"]) });
+const staffStatusSchema = z.object({ status: z.enum(["IN_REVIEW", "SUBMITTED"]) });
 /** Staff fulfillment status updates. Payment confirmation remains Stripe-controlled. */
 ordersRouter.patch("/:id/status", requireAuth, async (req, res, next) => {
   try {

@@ -30,7 +30,7 @@ Scope locked 2026-09-21: Phase 1 = public APIs to Lovable parity. Phase 2 = full
 ## Phase 2 (deferred)
 
 - [ ] Auth: refresh/logout/invite/accept/password-setup, TOTP enroll/verify, `requireRole` (`requireAuth` + assigned-or-admin reveal/audit done 2026-09-23)
-- [ ] Fulfillment: queue/search, detail, notes POST, audit GET, and UI over the completed status PATCH API
+- [ ] Fulfillment: queue/search, detail, notes POST, audit GET, and UI over the staff status PATCH API (SUBMITTED is the terminal status)
 - [ ] Admin: gov-fee CRUD + audit, sales/revenue aggregation
 - [ ] Attendance: routes only if needed (original was isolated preview-only)
 - [ ] Do NOT build custody/vault/second-charge
