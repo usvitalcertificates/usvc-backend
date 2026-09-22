@@ -4,7 +4,21 @@ import { priceOrder } from "./orders.js";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ZIP_PATTERN = /^(\d{5}(-\d{4})?|[A-Za-z0-9][A-Za-z0-9 -]{1,18})$/;
-const SSN_PATTERN = /^\d{3}-?\d{2}-?\d{4}$/;
+
+/** Light SSN plausibility: 9 digits, area not 000/666/9xx, group not 00, serial not 0000. */
+export function isPlausibleSsn(value: string): boolean {
+  const digits = value.replace(/\D/g, "");
+  if (!/^\d{9}$/.test(digits)) return false;
+  const area = digits.slice(0, 3);
+  if (area === "000" || area === "666" || area[0] === "9") return false;
+  if (digits.slice(3, 5) === "00" || digits.slice(5) === "0000") return false;
+  return true;
+}
+
+/** E.164 international number: + followed by 7–15 digits. */
+export function isE164Phone(value: string): boolean {
+  return /^\+[1-9]\d{6,14}$/.test(value.trim());
+}
 const REMOVED_NAME_HISTORY_SUBJECT_KEYS = new Set([
   "subjectNameChanged",
   "subjectSpelling",
@@ -268,13 +282,13 @@ export function validateOrderSubmission(input: CreateOrderInput): OrderValidatio
 
   // All birth applications require an SSN; California also requires the requestor DOB.
   const isCaliforniaBirth = input.stateCode === "CA" && input.certificate === "BIRTH";
-  if (input.certificate === "BIRTH" && !SSN_PATTERN.test((input.requestorSsn ?? "").trim())) {
+  if (input.certificate === "BIRTH" && !isPlausibleSsn((input.requestorSsn ?? "").trim())) {
     errors["requestorSsn"] = "Social Security Number is required for birth records.";
   }
   if (isCaliforniaBirth) {
     if (!isValidDateString(input.applicant.dateOfBirth ?? ""))
       errors["applicant.dateOfBirth"] = "Date of birth is required for California birth records.";
-  } else if (input.requestorSsn && !SSN_PATTERN.test(input.requestorSsn.trim())) {
+  } else if (input.requestorSsn && !isPlausibleSsn(input.requestorSsn.trim())) {
     errors["requestorSsn"] = "Please enter a valid Social Security Number.";
   }
   if (input.applicant.dateOfBirth && !isValidDateString(input.applicant.dateOfBirth)) {
@@ -283,6 +297,8 @@ export function validateOrderSubmission(input: CreateOrderInput): OrderValidatio
 
   if (!EMAIL_PATTERN.test(input.applicant.email.trim()))
     errors["applicant.email"] = "Please enter a valid email address.";
+  if (!isE164Phone(input.applicant.phone ?? ""))
+    errors["applicant.phone"] = "Please enter a valid phone number with country code.";
   if (!ZIP_PATTERN.test((input.addresses.shipping.postalCode ?? "").trim())) {
     errors["addresses.shipping.postalCode"] = "Please enter a valid ZIP code.";
   }

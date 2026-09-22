@@ -14,6 +14,7 @@ const AnalyticsPurchaseDeliverySchema = new Schema(
     rushCents: { type: Number, required: true },
     currency: { type: String, required: true },
     certificate: { type: String, required: true },
+    stateCode: { type: String, default: "" },
     copies: { type: Number, required: true },
     rush: { type: Boolean, required: true },
     clientId: { type: String, default: "" },

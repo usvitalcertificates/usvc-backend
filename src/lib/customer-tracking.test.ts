@@ -33,7 +33,8 @@ test("does not show successful milestones for failed payments", () => {
 test("allows staff to move a paid order forward but never to alter payment status", () => {
   assert.equal(isAllowedStaffStatusTransition("PAID", "IN_REVIEW"), true);
   assert.equal(isAllowedStaffStatusTransition("IN_REVIEW", "SUBMITTED"), true);
-  assert.equal(isAllowedStaffStatusTransition("SUBMITTED", "COMPLETED"), true);
-  assert.equal(isAllowedStaffStatusTransition("PAID", "COMPLETED"), false);
-  assert.equal(isAllowedStaffStatusTransition("COMPLETED", "PAID"), false);
+  // SUBMITTED is terminal: "Order Processed – Submitted to the Govt Agency" is last.
+  assert.equal(isAllowedStaffStatusTransition("SUBMITTED", "COMPLETED"), false);
+  assert.equal(isAllowedStaffStatusTransition("SUBMITTED", "IN_REVIEW"), false);
+  assert.equal(isAllowedStaffStatusTransition("PAID", "SUBMITTED"), false);
 });

@@ -24,12 +24,16 @@ Scope locked 2026-09-21: Phase 1 = public APIs to Lovable parity. Phase 2 = full
 - [x] Email: durable Resend order confirmation queued by paid Stripe webhooks, with provider idempotency, retry leasing, staging recipient override, and branded HTML/text templates — done 2026-09-22
 - [x] Contact messages: persistent MongoDB inbox plus resilient support notification/customer receipt emails — done 2026-09-22
 - [x] GA4: production-only browser funnel plus durable server-side purchase outbox from signed paid webhooks — done 2026-09-22
+- [x] Sequential public order numbers 2026-09-23: `US<state>-<type>-<date>-<plate>` (e.g. `USCA-BT-20260922-00A001`) via atomic `counters.orderSeq` + `encodeSequence` (00A001→00A999→00B001…); duplicate-key retry; live proof sequential + 5-concurrent unique
+- [x] Rush/non-rush confirmation copy 2026-09-23 ("reviewed." shared line; Rush channel paragraph when `rushCents > 0`) + light email logo (`usvc-logo-light.png` direct URL)
+- [x] Contact validation 2026-09-23: E.164 international phone (`applicant.phone`, `+` + 7–15 digits) + SSN plausibility (area/group/serial rules) with tests
+- [x] GA4 state tracking 2026-09-23: `state_code` (+ `certificate`) on server `purchase` via `AnalyticsPurchaseDelivery.stateCode`; `stateCode` added to the checkout summary projection
 - [ ] Proof: `npm run build && npm test` passes
 
 ## Phase 2 (deferred)
 
 - [ ] Auth: refresh/logout/invite/accept/password-setup, TOTP enroll/verify, `requireRole` (`requireAuth` + assigned-or-admin reveal/audit done 2026-09-23)
-- [ ] Fulfillment: queue/search, detail, notes POST, audit GET, and UI over the completed status PATCH API
+- [ ] Fulfillment: queue/search, detail, notes POST, audit GET, and UI over the staff status PATCH API (SUBMITTED is the terminal status)
 - [ ] Admin: gov-fee CRUD + audit, sales/revenue aggregation
 - [ ] Attendance: routes only if needed (original was isolated preview-only)
 - [ ] Do NOT build custody/vault/second-charge

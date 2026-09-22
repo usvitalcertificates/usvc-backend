@@ -3,7 +3,6 @@ export const CUSTOMER_TRACKING_STEPS = [
   { key: "orderReceivedAt", label: "Order Received" },
   { key: "processingAt", label: "Order Processing" },
   { key: "submittedToAgencyAt", label: "Order Processed – Submitted to the Govt Agency" },
-  { key: "completedAt", label: "Order Completed" },
 ] as const;
 
 type TimelineKey = (typeof CUSTOMER_TRACKING_STEPS)[number]["key"];
@@ -40,8 +39,6 @@ export function publicTrackingStatus(order: TrackableOrder) {
   const fallbackKeys: TimelineKey[] = ["paymentSuccessfulAt", "orderReceivedAt"];
   if (order.status === "IN_REVIEW") fallbackKeys.push("processingAt");
   if (order.status === "SUBMITTED") fallbackKeys.push("processingAt", "submittedToAgencyAt");
-  if (order.status === "COMPLETED")
-    fallbackKeys.push("processingAt", "submittedToAgencyAt", "completedAt");
 
   const entries = CUSTOMER_TRACKING_STEPS.filter(
     (step) => timeline[step.key] || fallbackKeys.includes(step.key),
@@ -64,7 +61,7 @@ export function publicTrackingStatus(order: TrackableOrder) {
     currentStatus: entries.at(-1)?.label ?? "Order Received",
     timeline: entries,
     notice:
-      order.status === "SUBMITTED" || order.status === "COMPLETED"
+      order.status === "SUBMITTED"
         ? "Government-agency processing and certificate delivery times may vary."
         : undefined,
     lastUpdatedAt: updatedAt,
@@ -74,13 +71,11 @@ export function publicTrackingStatus(order: TrackableOrder) {
 export const STAFF_STATUS_TIMELINE_KEYS = {
   IN_REVIEW: "processingAt",
   SUBMITTED: "submittedToAgencyAt",
-  COMPLETED: "completedAt",
 } as const;
 
 export const STAFF_STATUS_TRANSITIONS = {
   PAID: "IN_REVIEW",
   IN_REVIEW: "SUBMITTED",
-  SUBMITTED: "COMPLETED",
 } as const;
 
 export function isAllowedStaffStatusTransition(current: string, next: string): boolean {

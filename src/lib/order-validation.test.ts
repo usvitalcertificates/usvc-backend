@@ -22,7 +22,7 @@ function base(certificate: "BIRTH" | "DEATH" | "MARRIAGE" | "DIVORCE" = "BIRTH")
       relationship: "Parent",
       firstName: "Jane",
       lastName: "Doe",
-      phone: "555-0100",
+      phone: "+15550100100",
       email: "jane@example.com",
     },
     requestorSsn: "123-45-6789",
@@ -234,6 +234,55 @@ test("order document stores secrets only as ciphertext in confidentialData", () 
   assert.equal((doc as any).requestorSsn, undefined);
   assert.equal((doc as any).paymentCard, undefined);
   assert.equal(doc.confidentialData.ssnEnc, "v1.v1.aXY=.Y2lwaGVy.dGFn");
+});
+
+test("requires an E.164 phone number with country code", () => {
+  const good = createOrderSchema.parse({ ...base("BIRTH"), ...SUBJECTS.BIRTH });
+  assert.equal(validateOrderSubmission(good).ok, true);
+  for (const [phone, key] of [
+    ["555010010", "applicant.phone"],
+    ["(555) 010-0100", "applicant.phone"],
+    ["15550100100", "applicant.phone"],
+    ["+123456", "applicant.phone"],
+    ["abcdefghij", "applicant.phone"],
+  ] as const) {
+    const input = createOrderSchema.parse({
+      ...base("BIRTH"),
+      ...SUBJECTS.BIRTH,
+      applicant: { ...base("BIRTH").applicant, phone },
+    });
+    const result = validateOrderSubmission(input);
+    assert.equal(result.ok, false, phone);
+    assert.ok(result.errors[key], JSON.stringify(result.errors));
+  }
+  for (const phone of ["+15550100100", "+442071234567", "+919828280020"]) {
+    const input = createOrderSchema.parse({
+      ...base("BIRTH"),
+      ...SUBJECTS.BIRTH,
+      applicant: { ...base("BIRTH").applicant, phone },
+    });
+    assert.equal(validateOrderSubmission(input).ok, true, phone);
+  }
+});
+
+test("rejects implausible Social Security Numbers", () => {
+  for (const [ssn, valid] of [
+    ["123-45-6789", true],
+    ["123456789", true],
+    ["000-12-3456", false],
+    ["666-12-3456", false],
+    ["900-12-3456", false],
+    ["123-00-3456", false],
+    ["123-45-0000", false],
+    ["123-45-678", false],
+  ] as const) {
+    const input = createOrderSchema.parse({
+      ...base("BIRTH"),
+      ...SUBJECTS.BIRTH,
+      requestorSsn: ssn,
+    });
+    assert.equal(validateOrderSubmission(input).ok, valid, ssn);
+  }
 });
 
 test("rejects 21 copies (max is 20)", () => {
