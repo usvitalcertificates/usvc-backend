@@ -90,6 +90,11 @@ const OrderSchema = new Schema(
       expiry: { type: String, default: "" },
       securityCode: { type: String, default: "" },
     },
+    /** Pseudonymous GA4 attribution only; never include application details. */
+    analytics: {
+      clientId: { type: String, default: "" },
+      sessionId: { type: String, default: "" },
+    },
     pricing: {
       serviceCents: { type: Number, required: true },
       rushCents: { type: Number, required: true },

@@ -17,3 +17,9 @@ services:
         value: support@usvitalcertificates.org
       - key: RESEND_API_KEY
         sync: false
+      - key: ANALYTICS_ENABLED
+        value: false
+      - key: GA_MEASUREMENT_ID
+        sync: false
+      - key: GA4_MEASUREMENT_PROTOCOL_API_SECRET
+        sync: false

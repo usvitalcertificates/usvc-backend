@@ -3,6 +3,7 @@ import Stripe from "stripe";
 import mongoose from "mongoose";
 import { env } from "../config/env.js";
 import { EmailOutbox } from "../models/email-outbox.js";
+import { AnalyticsPurchaseDelivery } from "../models/analytics-purchase-delivery.js";
 import { Order } from "../models/order.js";
 import { StripeEvent } from "../models/staff.js";
 const stripe = new Stripe(env.STRIPE_SECRET_KEY);
@@ -92,7 +93,23 @@ webhookRouter.post("/stripe", async (req, res, next) => {
             { session },
           );
         if (validId && paymentConfirmed) {
-          const order = await Order.findById(validId, { "applicant.email": 1 }, { session }).lean();
+          const order = await Order.findById(
+            validId,
+            {
+              "applicant.email": 1,
+              publicNumber: 1,
+              amountCents: 1,
+              "pricing.serviceCents": 1,
+              "pricing.rushCents": 1,
+              currency: 1,
+              certificate: 1,
+              copies: 1,
+              rush: 1,
+              "analytics.clientId": 1,
+              "analytics.sessionId": 1,
+            },
+            { session },
+          ).lean();
           if (order?.applicant?.email) {
             const outboxId = `payment-confirmation:${validId}`;
             const queued = await EmailOutbox.updateOne(
@@ -116,6 +133,45 @@ webhookRouter.post("/stripe", async (req, res, next) => {
                   $push: {
                     auditEvents: {
                       action: "confirmation_email_queued",
+                      metadata: { outboxId },
+                      createdAt: new Date(),
+                    },
+                  },
+                },
+                { session },
+              );
+          }
+          if (order && env.ANALYTICS_ENABLED) {
+            const outboxId = `ga4-purchase:${validId}`;
+            const queued = await AnalyticsPurchaseDelivery.updateOne(
+              { _id: outboxId },
+              {
+                $setOnInsert: {
+                  orderId: order._id,
+                  transactionId: order.publicNumber,
+                  amountCents: order.amountCents,
+                  serviceCents: order.pricing.serviceCents,
+                  rushCents: order.pricing.rushCents,
+                  currency: order.currency,
+                  certificate: order.certificate,
+                  copies: order.copies,
+                  rush: order.rush,
+                  clientId: order.analytics?.clientId ?? "",
+                  sessionId: order.analytics?.sessionId ?? "",
+                  status: "PENDING",
+                  attempts: 0,
+                  nextAttemptAt: new Date(),
+                },
+              },
+              { upsert: true, session },
+            );
+            if (queued.upsertedCount)
+              await Order.updateOne(
+                { _id: validId },
+                {
+                  $push: {
+                    auditEvents: {
+                      action: "analytics_purchase_queued",
                       metadata: { outboxId },
                       createdAt: new Date(),
                     },
