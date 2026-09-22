@@ -12,10 +12,24 @@ import {
 } from "../lib/order-validation.js";
 import { Order } from "../models/order.js";
 import { ApiError } from "../middleware/errors.js";
+import { requireAuth } from "../middleware/auth.js";
+import {
+  isAllowedStaffStatusTransition,
+  publicTrackingStatus,
+  STAFF_STATUS_TIMELINE_KEYS,
+} from "../lib/customer-tracking.js";
+import rateLimit from "express-rate-limit";
 
 const stripe = new Stripe(env.STRIPE_SECRET_KEY);
 
 export const ordersRouter = Router();
+const trackingLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many tracking attempts. Please try again later." },
+});
 
 /** Validate + store a complete application, SSN included as plaintext on the
  *  order document per owner requirement. SSN must never be returned by public
@@ -313,7 +327,37 @@ ordersRouter.post("/checkout-session/confirm", async (req, res, next) => {
   }
 });
 
-ordersRouter.post("/tracking", async (req, res, next) => {
+const staffStatusSchema = z.object({ status: z.enum(["IN_REVIEW", "SUBMITTED", "COMPLETED"]) });
+/** Staff fulfillment status updates. Payment confirmation remains Stripe-controlled. */
+ordersRouter.patch("/:id/status", requireAuth, async (req, res, next) => {
+  try {
+    const id = z.string().min(1).parse(req.params.id);
+    const { status } = staffStatusSchema.parse(req.body);
+    const order = await Order.findById(id);
+    if (!order) throw new ApiError(404, "Order not found");
+    if (order.paymentStatus !== "PAID") throw new ApiError(409, "A paid order is required.");
+    if (!isAllowedStaffStatusTransition(order.status, status))
+      throw new ApiError(422, "Order statuses must move forward one step at a time.");
+
+    const occurredAt = new Date();
+    const timelineKey = STAFF_STATUS_TIMELINE_KEYS[status];
+    order.status = status;
+    order.customerTimeline ??= {};
+    order.customerTimeline[timelineKey] = occurredAt;
+    order.auditEvents.push({
+      actorId: (req as typeof req & { user: { sub: string } }).user.sub,
+      action: "fulfillment_status_updated",
+      metadata: { status },
+      createdAt: occurredAt,
+    });
+    await order.save();
+    res.json({ status: order.status, updatedAt: order.updatedAt });
+  } catch (e) {
+    next(e);
+  }
+});
+
+ordersRouter.post("/tracking", trackingLimiter, async (req, res, next) => {
   try {
     const input = z.object({ publicNumber: z.string(), email: z.string().email() }).parse(req.body);
     const order = await Order.findOne(
@@ -332,7 +376,13 @@ ordersRouter.post("/tracking", async (req, res, next) => {
       },
     ).lean();
     if (!order) throw new ApiError(404, "Order not found");
-    res.json(order);
+    const tracking = publicTrackingStatus(order);
+    res.json({
+      publicNumber: order.publicNumber,
+      certificate: order.certificate,
+      stateCode: order.stateCode,
+      ...tracking,
+    });
   } catch (e) {
     next(e);
   }
