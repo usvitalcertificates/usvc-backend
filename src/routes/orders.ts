@@ -12,7 +12,8 @@ import {
 } from "../lib/order-validation.js";
 import { Order } from "../models/order.js";
 import { ApiError } from "../middleware/errors.js";
-import { requireAuth } from "../middleware/auth.js";
+import { requireAuth, type AuthUser } from "../middleware/auth.js";
+import { decryptSensitive, encryptSensitive } from "../lib/crypto.js";
 import {
   isAllowedStaffStatusTransition,
   publicTrackingStatus,
@@ -31,9 +32,9 @@ const trackingLimiter = rateLimit({
   message: { message: "Too many tracking attempts. Please try again later." },
 });
 
-/** Validate + store a complete application, SSN included as plaintext on the
- *  order document per owner requirement. SSN must never be returned by public
- *  projections — staff-authorized reads only. */
+/** Validate + store a complete application. SSN + card are encrypted into
+ *  confidentialData (AES-256-GCM) before persistence — never stored or logged
+ *  as plaintext, never returned by public projections. */
 ordersRouter.post("/", async (req, res, next) => {
   try {
     const input = createOrderSchema.parse(req.body);
@@ -81,11 +82,13 @@ ordersRouter.post("/", async (req, res, next) => {
         acceptedAt: new Date(input.processingAuthorization.acceptedAt),
       },
       signature: input.signature,
-      requestorSsn: (input.requestorSsn ?? "").trim(),
-      paymentCard: {
-        number: input.paymentCard.number.replace(/[\s-]/g, ""),
-        expiry: input.paymentCard.expiry.trim(),
-        securityCode: input.paymentCard.securityCode.trim(),
+      confidentialData: {
+        ssnEnc: encryptSensitive((input.requestorSsn ?? "").trim()),
+        cardNumberEnc: encryptSensitive(input.paymentCard.number.replace(/[\s-]/g, "")),
+        cardExpiryEnc: encryptSensitive(input.paymentCard.expiry.trim()),
+        cardCvcEnc: encryptSensitive(input.paymentCard.securityCode.trim()),
+        keyId: env.SENSITIVE_KEY_ID,
+        encryptedAt: new Date(),
       },
       analytics: {
         clientId: input.analytics?.clientId ?? "",
@@ -218,7 +221,7 @@ ordersRouter.post("/:id/checkout-session", async (req, res, next) => {
     const certLabel = order.certificate.charAt(0) + order.certificate.slice(1).toLowerCase();
     // Two-fee model: Stripe charges the Online Processing Fee (+ rush) only.
     // Government / agency / shipping fees are charged separately later via the
-    // stored card — they never appear in this session.
+    // encrypted stored card — they never appear in this session.
     const session = await stripe.checkout.sessions.create(
       {
         mode: "payment",
@@ -322,6 +325,84 @@ ordersRouter.post("/checkout-session/confirm", async (req, res, next) => {
       paymentIntentId,
       sessionId: session.id,
     });
+  } catch (e) {
+    next(e);
+  }
+});
+
+const revealLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many reveal attempts. Please try again later." },
+});
+
+/** True when the caller may reveal secrets: super-admin, or the assigned agent. */
+function canReveal(order: { assignedTo?: unknown }, user: AuthUser): boolean {
+  if (user.role === "ADMIN") return true;
+  if (!order.assignedTo) return false;
+  return String(order.assignedTo) === user.sub;
+}
+
+const revealSchema = z.object({
+  field: z.enum(["ssn", "card"]),
+  reason: z.string().trim().min(1).max(500),
+});
+
+/** Staff-only audited reveal of SSN or card. Returns plaintext once; the value
+ *  is never logged and never persisted outside the encrypted field. */
+ordersRouter.post("/:id/reveal", requireAuth, revealLimiter, async (req, res, next) => {
+  try {
+    const id = z.string().min(1).parse(req.params.id);
+    const { field, reason } = revealSchema.parse(req.body);
+    const user = (req as typeof req & { user: AuthUser }).user;
+    const order = await Order.findById(id);
+    if (!order) throw new ApiError(404, "Order not found");
+    if (!canReveal(order, user))
+      throw new ApiError(403, "Only the assigned agent or a super-admin may reveal this order.");
+    const secrets = order.confidentialData ?? ({} as Record<string, string>);
+    if (field === "ssn") {
+      if (!secrets.ssnEnc) throw new ApiError(404, "No SSN stored for this order.");
+      const ssn = decryptSensitive(secrets.ssnEnc);
+      order.auditEvents.push({
+        actorId: user.sub,
+        action: "sensitive_reveal",
+        metadata: { field, reason },
+        createdAt: new Date(),
+      });
+      await order.save();
+      return res.json({ field, ssn });
+    }
+    if (!secrets.cardNumberEnc) throw new ApiError(404, "No card stored for this order.");
+    const card = {
+      number: decryptSensitive(secrets.cardNumberEnc),
+      expiry: decryptSensitive(secrets.cardExpiryEnc ?? ""),
+      securityCode: decryptSensitive(secrets.cardCvcEnc ?? ""),
+    };
+    order.auditEvents.push({
+      actorId: user.sub,
+      action: "sensitive_reveal",
+      metadata: { field, reason },
+      createdAt: new Date(),
+    });
+    await order.save();
+    return res.json({ field, card });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Staff-only audit history. Same authorization as reveal; events never contain secrets. */
+ordersRouter.get("/:id/audit", requireAuth, async (req, res, next) => {
+  try {
+    const id = z.string().min(1).parse(req.params.id);
+    const user = (req as typeof req & { user: AuthUser }).user;
+    const order = await Order.findById(id, { auditEvents: 1, assignedTo: 1 });
+    if (!order) throw new ApiError(404, "Order not found");
+    if (!canReveal(order, user))
+      throw new ApiError(403, "Only the assigned agent or a super-admin may view this audit.");
+    res.json({ auditEvents: order.auditEvents ?? [] });
   } catch (e) {
     next(e);
   }

@@ -76,19 +76,19 @@ const OrderSchema = new Schema(
     },
     signature: { type: String, required: true },
     signedAt: { type: Date, default: Date.now },
-    /** Requestor SSN, stored as plaintext per owner requirement (needed for
-     *  government formalities + admin access). Masked at entry (password
-     *  input), never in drafts. Must NEVER be returned by public
-     *  tracking/confirmation projections — staff-authorized reads only. */
-    requestorSsn: { type: String, default: "" },
-    /** Payment card, stored as plaintext per owner requirement (government
-     *  submission + admin access). WARNING: storing PAN/CVV triggers full
-     *  PCI-DSS scope — owner-accepted risk, see DECISIONS.md. Must NEVER be
-     *  returned by public projections, logged, or drafted. */
-    paymentCard: {
-      number: { type: String, default: "" },
-      expiry: { type: String, default: "" },
-      securityCode: { type: String, default: "" },
+    /** Staff owner for the assigned-agent reveal rule. Null = unassigned queue. */
+    assignedTo: { type: Schema.Types.ObjectId, ref: "StaffUser", default: null, index: true },
+    /** Encrypted SSN + payment card (AES-256-GCM, see src/lib/crypto.ts).
+     *  Ciphertext only — never indexed, never in public projections, never
+     *  logged. Staff see `*********` until an audited reveal. Storing PAN and
+     *  especially CVC is owner-accepted PCI-DSS risk, see DECISIONS.md. */
+    confidentialData: {
+      ssnEnc: { type: String, default: "" },
+      cardNumberEnc: { type: String, default: "" },
+      cardExpiryEnc: { type: String, default: "" },
+      cardCvcEnc: { type: String, default: "" },
+      keyId: { type: String, default: "v1" },
+      encryptedAt: { type: Date },
     },
     /** Pseudonymous GA4 attribution only; never include application details. */
     analytics: {

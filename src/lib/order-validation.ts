@@ -103,7 +103,7 @@ export const createOrderSchema = z.object({
     phone: z.string().min(1).max(40),
     email: z.string().min(1).max(255),
   }),
-  /** Requestor SSN. Encrypted into the isolated vault on receipt; never stored on the order. */
+  /** Requestor SSN. Encrypted into confidentialData (AES-256-GCM) before persistence; never stored as plaintext. */
   requestorSsn: z.string().max(20).optional().default(""),
   subject: z
     .record(z.string(), z.string())
@@ -138,7 +138,8 @@ export const createOrderSchema = z.object({
     acceptedAt: z.string().max(40),
   }),
   signature: z.string().min(1).max(160),
-  /** Payment card details. Stored as plaintext per owner requirement.
+  /** Payment card details. Encrypted into confidentialData (AES-256-GCM) before
+   *  persistence; never stored as plaintext.
    *  WARNING: owner-accepted PCI-DSS risk — see DECISIONS.md. */
   paymentCard: z.object({
     number: z.string().max(24).default(""),
@@ -217,10 +218,6 @@ export function isAcceptedCardExpiry(value: string): boolean {
   const year = 2000 + Number(match[2]);
   const end = new Date(year, month, 0, 23, 59, 59);
   return end.getTime() >= Date.now();
-}
-
-export function cardLast4(value: string): string {
-  return value.replace(/[\s-]/g, "").slice(-4);
 }
 
 export interface OrderValidationResult {
