@@ -9,6 +9,7 @@ Last updated: 2026-09-22 (Node.js 24 LTS; plaintext SSN per owner decision; vaul
 - The California counties San Francisco, San Bernardino, Yolo, Riverside, Del Norte, Lake, Sutter, Kings, and Santa Barbara are temporarily unavailable. They are rejected before an order is created or verified and rechecked before Stripe Checkout Session creation for unpaid existing orders.
 - Birth orders require a valid SSN and subject suffix; a Female recorded gender requires the subject maiden last name. Applicant middle name is accepted and persisted as optional data.
 - `POST /orders/verify-before-payment` (dry run), `GET /orders/geo/:stateCode`, staff login, tracking lookup (SSN/card-safe projection), signed idempotent Stripe webhooks via Mongoose transactions.
+- Public tracking returns only a customer-safe timeline: Payment Successful, Order Received, Order Processing, Order Processed – Submitted to the Govt Agency, and Order Completed. Stripe webhook payment confirmation creates the first two milestones; authenticated staff can move paid orders forward one fulfillment step at a time through the staff status endpoint.
 - Paid Stripe webhooks atomically queue one Resend confirmation per order in `email_outbox`. The background worker leases jobs, uses provider idempotency, retries temporary failures with exponential backoff, and records sanitized delivery audit events.
 - When production analytics is enabled, paid Stripe webhooks atomically queue one GA4 Purchase in `analytics_purchase_deliveries`. The worker sends only public order number, charged amount, USD, certificate type, copies, and rush status; it retries safely and records sanitized order audit events. Browser tracking never emits Purchase.
 - All Resend HTML emails display the public USVC logo in a shared branded header. Inbox sender-avatar display remains controlled by recipient email clients and requires owner-managed BIMI and/or Apple Branded Mail verification.
@@ -24,7 +25,7 @@ Last updated: 2026-09-22 (Node.js 24 LTS; plaintext SSN per owner decision; vaul
 ## In progress / not yet exposed as routes
 
 - Refresh/logout, invitation acceptance, password setup, and TOTP MFA.
-- Staff authorization middleware and protected fulfillment, fee, report, and attendance endpoints.
+- Fee, report, and attendance endpoints; a staff fulfillment UI remains to be built over the protected status endpoint.
 - Admin UI support and more restrictive public tracking projection.
 
 ## Sensitive-data boundary
