@@ -121,6 +121,14 @@ const OrderSchema = new Schema(
       enum: ["PENDING", "PAID", "FAILED", "REFUNDED"],
       default: "PENDING",
     },
+    /** Fixed, public-safe milestone timestamps. Never stores staff notes or application data. */
+    customerTimeline: {
+      paymentSuccessfulAt: Date,
+      orderReceivedAt: Date,
+      processingAt: Date,
+      submittedToAgencyAt: Date,
+      completedAt: Date,
+    },
     stripePaymentIntentId: { type: String, sparse: true, unique: true },
     stripeCheckoutSessionId: { type: String, sparse: true, unique: true },
     notes: [{ authorId: String, body: String, createdAt: { type: Date, default: Date.now } }],

@@ -17,7 +17,7 @@ Scope locked 2026-09-21: Phase 1 = public APIs to Lovable parity. Phase 2 = full
 - [x] Geo datasets (`src/data/geo/`, 59 states) + county→city validation — done 2026-09-21
 - [ ] `GET /government-fees?state&cert` — public read from `government_fees` collection
 - [ ] `GET /orders/:id/confirmation` — backend-verified paid receipt (webhook is authoritative)
-- [ ] Harden `POST /orders/tracking` — publicNumber + email only, sanitized projection
+- [x] Customer order tracking timeline: sanitized order-number/email lookup, payment milestones, rate limit, and forward-only staff status updates — done 2026-09-22
 - [ ] Anti-abuse: HMAC hash IP/email/order/session + rate-limit order creation
 - [ ] Stripe isolation: add `PAYMENT_ENVIRONMENT`, `STRIPE_{LIVE,TEST}_*`, fail-closed prefix checks, 1 live webhook with 3 events
 - [x] Email: durable Resend order confirmation queued by paid Stripe webhooks, with provider idempotency, retry leasing, staging recipient override, and branded HTML/text templates — done 2026-09-22
@@ -28,7 +28,7 @@ Scope locked 2026-09-21: Phase 1 = public APIs to Lovable parity. Phase 2 = full
 ## Phase 2 (deferred)
 
 - [ ] Auth: refresh/logout/invite/accept/password-setup, TOTP enroll/verify, `requireAuth` + `requireRole`
-- [ ] Fulfillment: queue/search, detail, status PATCH, notes POST, audit GET
+- [ ] Fulfillment: queue/search, detail, notes POST, audit GET, and UI over the completed status PATCH API
 - [ ] Admin: gov-fee CRUD + audit, sales/revenue aggregation
 - [ ] Attendance: routes only if needed (original was isolated preview-only)
 - [ ] Do NOT build custody/vault/second-charge

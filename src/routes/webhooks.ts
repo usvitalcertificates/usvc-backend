@@ -31,6 +31,7 @@ webhookRouter.post("/stripe", async (req, res, next) => {
           return;
         }
         let paymentConfirmed = false;
+        const paymentConfirmedAt = new Date();
         if (validId && event.type === "payment_intent.succeeded") {
           await Order.updateOne(
             { _id: validId },
@@ -39,7 +40,9 @@ webhookRouter.post("/stripe", async (req, res, next) => {
                 paymentStatus: "PAID",
                 status: "PAID",
                 stripePaymentIntentId: object.id,
-                updatedAt: new Date(),
+                "customerTimeline.paymentSuccessfulAt": paymentConfirmedAt,
+                "customerTimeline.orderReceivedAt": paymentConfirmedAt,
+                updatedAt: paymentConfirmedAt,
               },
             },
             { session },
@@ -62,7 +65,9 @@ webhookRouter.post("/stripe", async (req, res, next) => {
                   paymentStatus: "PAID",
                   status: "PAID",
                   stripeCheckoutSessionId: sessionObject.id,
-                  updatedAt: new Date(),
+                  "customerTimeline.paymentSuccessfulAt": paymentConfirmedAt,
+                  "customerTimeline.orderReceivedAt": paymentConfirmedAt,
+                  updatedAt: paymentConfirmedAt,
                 },
               },
               { session },
@@ -79,7 +84,9 @@ webhookRouter.post("/stripe", async (req, res, next) => {
                 paymentStatus: "PAID",
                 status: "PAID",
                 stripeCheckoutSessionId: sessionObject.id,
-                updatedAt: new Date(),
+                "customerTimeline.paymentSuccessfulAt": paymentConfirmedAt,
+                "customerTimeline.orderReceivedAt": paymentConfirmedAt,
+                updatedAt: paymentConfirmedAt,
               },
             },
             { session },
