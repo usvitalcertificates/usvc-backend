@@ -52,6 +52,15 @@ Confirmation emails are created only by signed Stripe success events. A MongoDB 
 3. Set `ANALYTICS_ENABLED=true` and `GA_MEASUREMENT_ID=G-GM4PWPHER1` in production Render. In Vercel production, set the same first two values. Set `ANALYTICS_ENABLED=false` in both staging services.
 4. Mark GA4's `purchase` event as a key event. If Google Ads imports that GA4 conversion, do not also create a direct Google Ads purchase conversion.
 
+## GA4 state breakdown (custom dimensions)
+
+Funnel events (`select_state`, `select_certificate`, `order_started`, `begin_checkout`, `add_payment_info`) and the server `purchase` all carry `state_code` (`CA`, `NY`, …) plus `certificate`. They appear in standard reports only after registering both as event-scoped custom dimensions:
+
+1. In Google Analytics, open **Admin → Data display → Custom definitions**.
+2. Create a custom dimension: Dimension name `State`, Scope `Event`, Event parameter `state_code`.
+3. Create a custom dimension: Dimension name `Certificate`, Scope `Event`, Event parameter `certificate`.
+4. Build the state funnel in **Explore** (e.g. filter `state_code` = `CA`, break down by event name). Allow 24–48 hours for dimensions to populate; data accumulates from deploy time even before registration, but standard reports only show it afterwards. Skipping registration breaks nothing — params are still collected for future use.
+
 The browser records public page and funnel activity only. A signed Stripe paid webhook atomically queues one server-side GA4 Purchase delivery in `analytics_purchase_deliveries`; the worker leases and retries it and uses the public order number as the transaction ID. No names, email addresses, phone numbers, addresses, dates of birth, SSNs, certificate subject details, card data, or Stripe identifiers are sent to GA4.
 
 ## Email logo and inbox avatar

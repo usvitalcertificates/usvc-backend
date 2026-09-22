@@ -180,6 +180,7 @@ ordersRouter.get("/:id/summary", async (req, res, next) => {
     const order = await Order.findById(id, {
       publicNumber: 1,
       stateName: 1,
+      stateCode: 1,
       certificate: 1,
       copies: 1,
       rush: 1,
