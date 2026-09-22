@@ -4,21 +4,24 @@ Deploy `usvc-backend/` to Render using [render.yaml](../render.yaml). The build 
 
 ## Required Render environment variables
 
-| Variable                   | Purpose                                                           |
-| -------------------------- | ----------------------------------------------------------------- |
-| `MONGODB_URI`              | Atlas connection string.                                          |
-| `MONGODB_DB_NAME`          | Database name, for example `usvc`.                                |
-| `FRONTEND_URL`             | Exact allowed frontend origin, such as the Vercel production URL. |
-| `JWT_ACCESS_SECRET`        | Long, unique signing secret.                                      |
-| `JWT_REFRESH_SECRET`       | Different long, unique signing secret.                            |
-| `STRIPE_SECRET_KEY`        | Stripe server-side secret key.                                    |
-| `STRIPE_WEBHOOK_SECRET`    | Stripe webhook signing secret.                                    |
-| `STRIPE_PUBLISHABLE_KEY`   | Stripe publishable key returned to checkout initialization.       |
-| `EMAIL_ENABLED`            | Set to `true` only after Resend and the sender domain are ready.  |
-| `RESEND_API_KEY`           | Resend sending API key; never commit this value.                  |
-| `EMAIL_FROM`               | `US Vital Certificates <noreply@usvitalcertificates.org>`.        |
-| `EMAIL_REPLY_TO`           | Customer-support reply address.                                   |
-| `EMAIL_RECIPIENT_OVERRIDE` | Staging-only inbox that receives every test confirmation.         |
+| Variable                              | Purpose                                                           |
+| ------------------------------------- | ----------------------------------------------------------------- |
+| `MONGODB_URI`                         | Atlas connection string.                                          |
+| `MONGODB_DB_NAME`                     | Database name, for example `usvc`.                                |
+| `FRONTEND_URL`                        | Exact allowed frontend origin, such as the Vercel production URL. |
+| `JWT_ACCESS_SECRET`                   | Long, unique signing secret.                                      |
+| `JWT_REFRESH_SECRET`                  | Different long, unique signing secret.                            |
+| `STRIPE_SECRET_KEY`                   | Stripe server-side secret key.                                    |
+| `STRIPE_WEBHOOK_SECRET`               | Stripe webhook signing secret.                                    |
+| `STRIPE_PUBLISHABLE_KEY`              | Stripe publishable key returned to checkout initialization.       |
+| `EMAIL_ENABLED`                       | Set to `true` only after Resend and the sender domain are ready.  |
+| `RESEND_API_KEY`                      | Resend sending API key; never commit this value.                  |
+| `EMAIL_FROM`                          | `US Vital Certificates <noreply@usvitalcertificates.org>`.        |
+| `EMAIL_REPLY_TO`                      | Customer-support reply address.                                   |
+| `EMAIL_RECIPIENT_OVERRIDE`            | Staging-only inbox that receives every test confirmation.         |
+| `ANALYTICS_ENABLED`                   | Set `true` only in production; leave `false` in staging.          |
+| `GA_MEASUREMENT_ID`                   | Production GA4 web stream ID: `G-GM4PWPHER1`.                     |
+| `GA4_MEASUREMENT_PROTOCOL_API_SECRET` | GA4 Measurement Protocol secret; never commit this value.         |
 
 ## Before accepting real orders
 
@@ -39,6 +42,15 @@ Deploy `usvc-backend/` to Render using [render.yaml](../render.yaml). The build 
 6. For production, repeat the Stripe destination in live mode and use a production Resend key. Do not define `EMAIL_RECIPIENT_OVERRIDE` in production.
 
 Confirmation emails are created only by signed Stripe success events. A MongoDB outbox retries temporary delivery failures without changing payment state. Failed jobs can be inspected in the `email_outbox` collection without exposing application or payment-card details.
+
+## GA4 purchase tracking
+
+1. In Google Analytics, open **Admin → Data streams**, select `G-GM4PWPHER1`, then open **Measurement Protocol API secrets**.
+2. Create a secret named `USVC Production Backend`, copy it once, and add it to the production Render service as `GA4_MEASUREMENT_PROTOCOL_API_SECRET`.
+3. Set `ANALYTICS_ENABLED=true` and `GA_MEASUREMENT_ID=G-GM4PWPHER1` in production Render. In Vercel production, set the same first two values. Set `ANALYTICS_ENABLED=false` in both staging services.
+4. Mark GA4's `purchase` event as a key event. If Google Ads imports that GA4 conversion, do not also create a direct Google Ads purchase conversion.
+
+The browser records public page and funnel activity only. A signed Stripe paid webhook atomically queues one server-side GA4 Purchase delivery in `analytics_purchase_deliveries`; the worker leases and retries it and uses the public order number as the transaction ID. No names, email addresses, phone numbers, addresses, dates of birth, SSNs, certificate subject details, card data, or Stripe identifiers are sent to GA4.
 
 ## Email logo and inbox avatar
 
