@@ -192,7 +192,7 @@ test("requires SSN and DOB for California birth records", () => {
   assert.ok(result.errors["requestorSsn"]);
 });
 
-test("order document stores requestorSsn as plaintext alongside form data", () => {
+test("order document stores secrets only as ciphertext in confidentialData", () => {
   const doc = new Order({
     publicNumber: "USVC-BI-20260921-TEST01",
     stateSlug: "alabama",
@@ -208,7 +208,14 @@ test("order document stores requestorSsn as plaintext alongside form data", () =
       phone: "1",
       email: "t@example.com",
     },
-    requestorSsn: "123-45-6789",
+    confidentialData: {
+      ssnEnc: "v1.v1.aXY=.Y2lwaGVy.dGFn",
+      cardNumberEnc: "v1.v1.aXY=.Y2lwaGVy.dGFn",
+      cardExpiryEnc: "v1.v1.aXY=.Y2lwaGVy.dGFn",
+      cardCvcEnc: "v1.v1.aXY=.Y2lwaGVy.dGFn",
+      keyId: "v1",
+      encryptedAt: new Date(),
+    },
     copies: 1,
     consents: {
       accurate: true,
@@ -224,7 +231,9 @@ test("order document stores requestorSsn as plaintext alongside form data", () =
     amountCents: 12500,
   });
   assert.equal(doc.validateSync(), undefined);
-  assert.equal(doc.requestorSsn, "123-45-6789");
+  assert.equal((doc as any).requestorSsn, undefined);
+  assert.equal((doc as any).paymentCard, undefined);
+  assert.equal(doc.confidentialData.ssnEnc, "v1.v1.aXY=.Y2lwaGVy.dGFn");
 });
 
 test("rejects 21 copies (max is 20)", () => {

@@ -23,3 +23,7 @@ services:
         sync: false
       - key: GA4_MEASUREMENT_PROTOCOL_API_SECRET
         sync: false
+      - key: SENSITIVE_ENCRYPTION_KEY
+        sync: false
+      - key: SENSITIVE_KEY_ID
+        value: v1
