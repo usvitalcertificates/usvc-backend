@@ -15,37 +15,42 @@ Geo datasets live in `src/data/geo/` (copied from reference) and ship to
 
 MongoDB remains appropriate for the current product. PostgreSQL would be a reasonable future alternative only if reporting, relational staff workflows, and cross-table financial controls become significantly more complex. Do not introduce a second database without an explicit migration plan.
 
-## Applicant data and SSN storage (plaintext per owner decision 2026-09-21)
+## Applicant data and SSN storage (encrypted confidentialData, locked 2026-09-23)
 
 `POST /orders` stores the complete application (applicant, per-cert
 subject/family, home/shipping/billing addresses, geo county/city validated
 against the dataset, copies 1–20, consents + signature, server-computed
-pricing snapshot). `requestorSsn`, when provided, is stored as plaintext on
-the order document — the owner requires it directly accessible for government
-formalities and the admin dashboard. This deliberately reverses the earlier
-AES-256-GCM vault (`order_secrets`, removed with `lib/crypto.ts` and
-`SSN_ENCRYPTION_KEY`).
+pricing snapshot). `requestorSsn`, when provided, is encrypted with AES-256-GCM
+into `confidentialData.ssnEnc` before persistence — no plaintext SSN is stored,
+logged, or returned by any public projection.
 
-Consequences accepted by the owner: SSN is readable by anyone with database
-access or backups; a projection mistake in a public API would expose it.
-Mitigations in place: tracking/confirmation use strict whitelist projections
-(verified by test), SSN never in drafts/logs/analytics, Atlas IP whitelist.
-Staff reads must be explicitly authorized (Phase 2).
+This replaces the 2026-09-21 plaintext decision (reversed 2026-09-23; pre-launch
+wipe, no migration). Earlier AES-256-GCM vault (`order_secrets`, removed with
+`lib/crypto.ts` and `SSN_ENCRYPTION_KEY`) is superseded by the new
+`src/lib/crypto.ts` + `SENSITIVE_ENCRYPTION_KEY` / `SENSITIVE_KEY_ID` design.
 
-## Payment card storage (plaintext per owner decision 2026-09-21)
+No plaintext `ssnLast4` is kept: staff see `*********` until an audited reveal.
+Staff reads require `POST /orders/:id/reveal` authorization (assigned agent or
+super-admin) with a recorded reason (Phase 1 backend; Miles 30-second UI is
+Phase 2).
+
+## Payment card storage (encrypted confidentialData, locked 2026-09-23)
 
 Section 8 "Credit Card Details" (number, MM/YY expiry, 3-digit security code;
-Visa/Mastercard only, Luhn-checked) is stored as plaintext
-`paymentCard` on the order, same pattern as SSN — required by the owner
-for later government submission + admin access. Copies 1–20 on all forms
-(owner decision 2026-09-21, matching the live site FAQ).
+Visa/Mastercard only, Luhn-checked) is encrypted with AES-256-GCM into
+`confidentialData.cardNumberEnc` / `cardExpiryEnc` / `cardCvcEnc` before
+persistence — same pattern as SSN, required by the owner for later government
+submission + admin access. Copies 1–20 on all forms (owner decision 2026-09-21,
+matching the live site FAQ). No plaintext `cardLast4` / `cardBrand` is kept:
+staff see `*********` until an audited reveal.
 
-WARNING on record: storing PANs and especially security codes violates
-card-network rules (CVV storage is forbidden outright) and triggers full
-PCI-DSS scope, with processor-termination and fine exposure. Owner
+WARNING on record: storing PANs and especially security codes — even encrypted
+— violates card-network rules (CVV storage is forbidden outright) and triggers
+full PCI-DSS scope, with processor-termination and fine exposure. Owner
 explicitly accepted this after the Stripe-vault alternative was offered.
-Mitigations: card fields excluded from drafts/logs/analytics and from all
-public projections (tested); review UI shows last-4 only.
+Mitigations: ciphertext-only at rest, card fields excluded from drafts/logs/
+analytics and from all public projections (tested); review UI shows a generic
+placeholder, never digits.
 
 ## Payments
 

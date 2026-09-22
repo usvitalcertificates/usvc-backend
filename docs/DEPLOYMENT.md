@@ -4,24 +4,26 @@ Deploy `usvc-backend/` to Render using [render.yaml](../render.yaml). The build 
 
 ## Required Render environment variables
 
-| Variable                              | Purpose                                                           |
-| ------------------------------------- | ----------------------------------------------------------------- |
-| `MONGODB_URI`                         | Atlas connection string.                                          |
-| `MONGODB_DB_NAME`                     | Database name, for example `usvc`.                                |
-| `FRONTEND_URL`                        | Exact allowed frontend origin, such as the Vercel production URL. |
-| `JWT_ACCESS_SECRET`                   | Long, unique signing secret.                                      |
-| `JWT_REFRESH_SECRET`                  | Different long, unique signing secret.                            |
-| `STRIPE_SECRET_KEY`                   | Stripe server-side secret key.                                    |
-| `STRIPE_WEBHOOK_SECRET`               | Stripe webhook signing secret.                                    |
-| `STRIPE_PUBLISHABLE_KEY`              | Stripe publishable key returned to checkout initialization.       |
-| `EMAIL_ENABLED`                       | Set to `true` only after Resend and the sender domain are ready.  |
-| `RESEND_API_KEY`                      | Resend sending API key; never commit this value.                  |
-| `EMAIL_FROM`                          | `US Vital Certificates <noreply@usvitalcertificates.org>`.        |
-| `EMAIL_REPLY_TO`                      | Customer-support reply address.                                   |
-| `EMAIL_RECIPIENT_OVERRIDE`            | Staging-only inbox that receives every test confirmation.         |
-| `ANALYTICS_ENABLED`                   | Set `true` only in production; leave `false` in staging.          |
-| `GA_MEASUREMENT_ID`                   | Production GA4 web stream ID: `G-GM4PWPHER1`.                     |
-| `GA4_MEASUREMENT_PROTOCOL_API_SECRET` | GA4 Measurement Protocol secret; never commit this value.         |
+| Variable                              | Purpose                                                                                                                                                                                                                                                   |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `MONGODB_URI`                         | Atlas connection string.                                                                                                                                                                                                                                  |
+| `MONGODB_DB_NAME`                     | Database name, for example `usvc`.                                                                                                                                                                                                                        |
+| `FRONTEND_URL`                        | Exact allowed frontend origin, such as the Vercel production URL.                                                                                                                                                                                         |
+| `JWT_ACCESS_SECRET`                   | Long, unique signing secret.                                                                                                                                                                                                                              |
+| `JWT_REFRESH_SECRET`                  | Different long, unique signing secret.                                                                                                                                                                                                                    |
+| `STRIPE_SECRET_KEY`                   | Stripe server-side secret key.                                                                                                                                                                                                                            |
+| `STRIPE_WEBHOOK_SECRET`               | Stripe webhook signing secret.                                                                                                                                                                                                                            |
+| `STRIPE_PUBLISHABLE_KEY`              | Stripe publishable key returned to checkout initialization.                                                                                                                                                                                               |
+| `EMAIL_ENABLED`                       | Set to `true` only after Resend and the sender domain are ready.                                                                                                                                                                                          |
+| `RESEND_API_KEY`                      | Resend sending API key; never commit this value.                                                                                                                                                                                                          |
+| `EMAIL_FROM`                          | `US Vital Certificates <noreply@usvitalcertificates.org>`.                                                                                                                                                                                                |
+| `EMAIL_REPLY_TO`                      | Customer-support reply address.                                                                                                                                                                                                                           |
+| `EMAIL_RECIPIENT_OVERRIDE`            | Staging-only inbox that receives every test confirmation.                                                                                                                                                                                                 |
+| `ANALYTICS_ENABLED`                   | Set `true` only in production; leave `false` in staging.                                                                                                                                                                                                  |
+| `GA_MEASUREMENT_ID`                   | Production GA4 web stream ID: `G-GM4PWPHER1`.                                                                                                                                                                                                             |
+| `GA4_MEASUREMENT_PROTOCOL_API_SECRET` | GA4 Measurement Protocol secret; never commit this value.                                                                                                                                                                                                 |
+| `SENSITIVE_ENCRYPTION_KEY`            | 64-char hex (or base64) 32-byte key for `confidentialData` AES-256-GCM; set as a Render secret (`sync: false`). Generate one per environment; never reuse the local dev key. Losing the production key makes stored SSN/card data permanently unreadable. |
+| `SENSITIVE_KEY_ID`                    | Key id, currently `v1`; must match the `keyId` stored in `confidentialData`.                                                                                                                                                                              |
 
 ## Before accepting real orders
 

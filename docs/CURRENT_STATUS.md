@@ -1,14 +1,16 @@
 # Current backend status
 
-Last updated: 2026-09-22 (Node.js 24 LTS; plaintext SSN per owner decision; vault removed; verified E2E vs local Mongo; birth-form requirements; temporary California county block).
+Last updated: 2026-09-23 (Node.js 24 LTS; AES-256-GCM confidentialData; plaintext SSN/card removed; reveal + audit routes; birth-form requirements; temporary California county block).
 
 ## Implemented
 
-- Mongoose models (`src/models/`): Order (applicant, per-cert subject/family, 3 addresses, geo, copies 1–20, consents + signature, pricing snapshot, plaintext `requestorSsn` + `paymentCard` per owner decision), StaffUser, StripeEvent, GovernmentFee, AttendanceRecord. No vault; `mongodb` driver removed.
-- `POST /orders` full contract with Zod + per-cert required maps + county→city geo validation + server-recomputed totals. Legacy name-history, alternate-spelling, and requestor previous-last-name fields are not accepted from the public frontend. SSN stored as plaintext on the order per owner requirement; public projections whitelist-exclude it (tested).
+- Mongoose models (`src/models/`): Order (applicant, per-cert subject/family, 3 addresses, geo, copies 1–20, consents + signature, pricing snapshot, `assignedTo`, encrypted `confidentialData` with `ssnEnc` + `cardNumberEnc`/`cardExpiryEnc`/`cardCvcEnc` + `keyId`/`encryptedAt`). No plaintext SSN or card fields; `mongodb` driver removed.
+- `POST /orders` full contract with Zod + per-cert required maps + county→city geo validation + server-recomputed totals. Legacy name-history, alternate-spelling, and requestor previous-last-name fields are not accepted from the public frontend. SSN and card input are encrypted (AES-256-GCM via `SENSITIVE_ENCRYPTION_KEY`) before persistence; public projections whitelist-exclude all of `confidentialData` (tested).
 - The California counties San Francisco, San Bernardino, Yolo, Riverside, Del Norte, Lake, Sutter, Kings, and Santa Barbara are temporarily unavailable. They are rejected before an order is created or verified and rechecked before Stripe Checkout Session creation for unpaid existing orders.
 - Birth orders require a valid SSN and subject suffix; a Female recorded gender requires the subject maiden last name. Applicant middle name is accepted and persisted as optional data.
-- `POST /orders/verify-before-payment` (dry run), `GET /orders/geo/:stateCode`, staff login, tracking lookup (SSN/card-safe projection), signed idempotent Stripe webhooks via Mongoose transactions.
+- `POST /orders/verify-before-payment` (dry run), `GET /orders/geo/:stateCode`, staff login, tracking lookup (`confidentialData`-safe projection), signed idempotent Stripe webhooks via Mongoose transactions.
+- Staff-only `POST /orders/:id/reveal` (per-field SSN/card, reason required, assigned-agent or super-admin, rate-limited, audit-logged) and `GET /orders/:id/audit` (same authorization). Frontend shows `*********` until reveal; no last-4 or brand stored.
+- `render.yaml` declares `SENSITIVE_ENCRYPTION_KEY` (secret, `sync: false`) and `SENSITIVE_KEY_ID=v1`; set a fresh key per Render environment (staging + production) via the dashboard — see `DEPLOYMENT.md`.
 - Public tracking returns only a customer-safe timeline: Payment Successful, Order Received, Order Processing, Order Processed – Submitted to the Govt Agency, and Order Completed. Stripe webhook payment confirmation creates the first two milestones; authenticated staff can move paid orders forward one fulfillment step at a time through the staff status endpoint.
 - Paid Stripe webhooks atomically queue one Resend confirmation per order in `email_outbox`. The background worker leases jobs, uses provider idempotency, retries temporary failures with exponential backoff, and records sanitized delivery audit events.
 - When production analytics is enabled, paid Stripe webhooks atomically queue one GA4 Purchase in `analytics_purchase_deliveries`. The worker sends only public order number, charged amount, USD, certificate type, copies, and rush status; it retries safely and records sanitized order audit events. Browser tracking never emits Purchase.
@@ -30,4 +32,4 @@ Last updated: 2026-09-22 (Node.js 24 LTS; plaintext SSN per owner decision; vaul
 
 ## Sensitive-data boundary
 
-Never store PAN, CVV, full card expiry, or raw Stripe credentials. The frontend application form may display an SSN field for parity with the reference UI, but the current frontend deliberately excludes that value from the API request. It must not be persisted until a separately designed, lawful, encrypted workflow is approved.
+SSN and card details exist only as AES-256-GCM ciphertext in `confidentialData`, encrypted with `SENSITIVE_ENCRYPTION_KEY` (backend env, never committed). They are never stored as plaintext, never logged, and never returned by public tracking/confirmation/summary projections (tested). Staff reads require `POST /orders/:id/reveal` authorization (assigned agent or super-admin) with a recorded reason. Storing PANs and especially security codes — even encrypted — triggers full PCI-DSS scope per owner-accepted risk (see DECISIONS.md).

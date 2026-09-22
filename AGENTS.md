@@ -1,13 +1,13 @@
 # Backend contribution rules
 
-This folder is the USVC Express + TypeScript API. It uses MongoDB Atlas through Mongoose; raw driver code, Mongoose alternatives, Prisma, PostgreSQL, and raw payment-card storage are not part of this project.
+This folder is the USVC Express + TypeScript API. It uses MongoDB Atlas through Mongoose; raw driver code, Mongoose alternatives, Prisma, PostgreSQL, and plaintext payment-card storage are not part of this project.
 
 - Keep money as integer cents and calculate totals only on the server.
 - Validate every request with Zod before using it.
 - Use typed MongoDB collections and startup indexes. Do not make manual production data changes.
 - Stripe webhooks must have signature verification, event idempotency, and transaction-safe order updates.
-- Never accept, log, store, or return PAN, CVV, expiry data, Stripe secret keys, JWT secrets, or other credentials.
-- Requestor SSN and payment-card fields are stored as plaintext on the order document per owner requirement (government formalities + admin access). They must never be returned by public tracking/confirmation projections and never logged. Staff reads require explicit authorization (Phase 2).
+- Never log or return plaintext PAN, CVV, expiry data, SSN, Stripe secret keys, JWT secrets, or other credentials. PAN/CVV/expiry/SSN from the application form are encrypted into `confidentialData` (AES-256-GCM) before persistence and revealed only via the authorized, audit-logged reveal endpoint.
+- Requestor SSN and payment-card fields exist only as ciphertext in `confidentialData` on the order document (government formalities + admin access). They must never be returned by public tracking/confirmation projections and never logged. Staff reads require `POST /orders/:id/reveal` authorization (assigned agent or super-admin) with a recorded reason.
 - Do not place real values in `.env.example` or documentation.
 - Keep public application data separate from staff-only information.
 - Run `npm run build` and `npm test` before handoff.

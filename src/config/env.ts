@@ -12,6 +12,19 @@ const schema = z
     STRIPE_SECRET_KEY: z.string().startsWith("sk_"),
     STRIPE_WEBHOOK_SECRET: z.string().startsWith("whsec_"),
     STRIPE_PUBLISHABLE_KEY: z.string().startsWith("pk_"),
+    SENSITIVE_ENCRYPTION_KEY: z
+      .string()
+      .min(32)
+      .refine((raw) => {
+        const value = raw.trim();
+        if (/^[0-9a-fA-F]{64}$/.test(value)) return true;
+        try {
+          return Buffer.from(value, "base64").length === 32;
+        } catch {
+          return false;
+        }
+      }, "SENSITIVE_ENCRYPTION_KEY must be 64-char hex or base64 decoding to 32 bytes"),
+    SENSITIVE_KEY_ID: z.string().min(1).default("v1"),
     EMAIL_ENABLED: z
       .enum(["true", "false"])
       .default("false")
