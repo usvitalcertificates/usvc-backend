@@ -11,6 +11,7 @@ import {
   validateOrderSubmission,
 } from "../lib/order-validation.js";
 import { Order } from "../models/order.js";
+import { nextOrderSequence } from "../models/counter.js";
 import { ApiError } from "../middleware/errors.js";
 import { requireAuth, type AuthUser } from "../middleware/auth.js";
 import { decryptSensitive, encryptSensitive } from "../lib/crypto.js";
@@ -49,58 +50,76 @@ ordersRouter.post("/", async (req, res, next) => {
       input.rush,
       input.destinationType === "international",
     );
-    const order = await Order.create({
-      publicNumber: orderNumber(input.certificate),
-      stateSlug: input.stateSlug,
-      stateName: input.stateName,
-      stateCode: input.stateCode,
-      certificate: input.certificate,
-      geo: { county: input.county, city: input.city },
-      reason: input.reason,
-      reasonOther: input.reasonOther ?? "",
-      applicant: {
-        relationship: input.applicant.relationship,
-        relationshipOther: input.applicant.relationshipOther ?? "",
-        firstName: input.applicant.firstName,
-        middleName: input.applicant.middleName ?? "",
-        lastName: input.applicant.lastName,
-        dateOfBirth: input.applicant.dateOfBirth ?? "",
-        phone: input.applicant.phone,
-        email: input.applicant.email,
-      },
-      subject: input.subject,
-      family: input.family,
-      addresses: input.addresses,
-      destinationType: input.destinationType,
-      copies: input.copies,
-      rush: input.rush,
-      deliveryMethod: input.deliveryMethod,
-      consents: input.consents,
-      processingAuthorization: {
-        accepted: input.processingAuthorization.accepted,
-        text: input.processingAuthorization.text,
-        acceptedAt: new Date(input.processingAuthorization.acceptedAt),
-      },
-      signature: input.signature,
-      confidentialData: {
-        ssnEnc: encryptSensitive((input.requestorSsn ?? "").trim()),
-        cardNumberEnc: encryptSensitive(input.paymentCard.number.replace(/[\s-]/g, "")),
-        cardExpiryEnc: encryptSensitive(input.paymentCard.expiry.trim()),
-        cardCvcEnc: encryptSensitive(input.paymentCard.securityCode.trim()),
-        keyId: env.SENSITIVE_KEY_ID,
-        encryptedAt: new Date(),
-      },
-      analytics: {
-        clientId: input.analytics?.clientId ?? "",
-        sessionId: input.analytics?.sessionId ?? "",
-      },
-      pricing: { ...pricing, chargedNowCents: pricing.totalCents },
-      amountCents: pricing.totalCents,
-      currency: "usd",
-      status: "AWAITING_PAYMENT",
-      paymentStatus: "PENDING",
-      auditEvents: [{ action: "order_created", createdAt: new Date() }],
-    });
+    // Globally sequential plate numbers via an atomic counter. A consumed
+    // sequence is never reused; on a (near-impossible) duplicate-key conflict
+    // the loop takes the next sequence instead of failing the order.
+    let order;
+    for (let attempt = 0; ; attempt++) {
+      const publicNumber = orderNumber(
+        input.certificate,
+        input.stateCode,
+        await nextOrderSequence(),
+      );
+      try {
+        order = await Order.create({
+          publicNumber,
+          stateSlug: input.stateSlug,
+          stateName: input.stateName,
+          stateCode: input.stateCode,
+          certificate: input.certificate,
+          geo: { county: input.county, city: input.city },
+          reason: input.reason,
+          reasonOther: input.reasonOther ?? "",
+          applicant: {
+            relationship: input.applicant.relationship,
+            relationshipOther: input.applicant.relationshipOther ?? "",
+            firstName: input.applicant.firstName,
+            middleName: input.applicant.middleName ?? "",
+            lastName: input.applicant.lastName,
+            dateOfBirth: input.applicant.dateOfBirth ?? "",
+            phone: input.applicant.phone,
+            email: input.applicant.email,
+          },
+          subject: input.subject,
+          family: input.family,
+          addresses: input.addresses,
+          destinationType: input.destinationType,
+          copies: input.copies,
+          rush: input.rush,
+          deliveryMethod: input.deliveryMethod,
+          consents: input.consents,
+          processingAuthorization: {
+            accepted: input.processingAuthorization.accepted,
+            text: input.processingAuthorization.text,
+            acceptedAt: new Date(input.processingAuthorization.acceptedAt),
+          },
+          signature: input.signature,
+          confidentialData: {
+            ssnEnc: encryptSensitive((input.requestorSsn ?? "").trim()),
+            cardNumberEnc: encryptSensitive(input.paymentCard.number.replace(/[\s-]/g, "")),
+            cardExpiryEnc: encryptSensitive(input.paymentCard.expiry.trim()),
+            cardCvcEnc: encryptSensitive(input.paymentCard.securityCode.trim()),
+            keyId: env.SENSITIVE_KEY_ID,
+            encryptedAt: new Date(),
+          },
+          analytics: {
+            clientId: input.analytics?.clientId ?? "",
+            sessionId: input.analytics?.sessionId ?? "",
+          },
+          pricing: { ...pricing, chargedNowCents: pricing.totalCents },
+          amountCents: pricing.totalCents,
+          currency: "usd",
+          status: "AWAITING_PAYMENT",
+          paymentStatus: "PENDING",
+          auditEvents: [{ action: "order_created", createdAt: new Date() }],
+        });
+        break;
+      } catch (e) {
+        const conflict = (e as { code?: number })?.code === 11000;
+        if (!conflict || attempt >= 2) throw e;
+      }
+    }
+    if (!order) throw new Error("Order could not be created.");
 
     res.status(201).json({
       id: order._id.toHexString(),
