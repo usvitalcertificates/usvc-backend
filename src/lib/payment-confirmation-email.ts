@@ -43,6 +43,7 @@ export function renderPaymentConfirmationEmail(
   <body style="margin:0;background:#ffffff;color:#000000;font-family:'Times New Roman',Times,serif;font-size:16px;line-height:1.5">
     <div style="display:none;max-height:0;overflow:hidden">Your US Vital Certificates payment has been confirmed.</div>
     <main style="max-width:620px;margin:0 auto;padding:40px 24px">
+      ${emailLogoHeader()}
       <h1 style="margin:0 0 14px;color:#3c3b6e;font-size:24px;line-height:1.25">Thank-you for your order</h1>
       <p style="margin:0 0 10px">Your request has been received successfully.</p>
       <p style="margin:0"><strong>Order Number:</strong> ${escapeHtml(order.publicNumber)}</p>
@@ -89,3 +90,4 @@ State and agency fees are handled separately from your online processing payment
 
   return { subject, html, text };
 }
+import { emailLogoHeader } from "./email-branding.js";

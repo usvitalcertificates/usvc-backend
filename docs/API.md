@@ -8,6 +8,7 @@ Base URL in local development: `http://localhost:4000`.
 | ------ | -------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
 | GET    | `/health`                              | Returns API health information.                                                                                           |
 | POST   | `/auth/login`                          | Staff login. Requires `email` and a password of at least 12 characters. Returns JWT access and refresh tokens.            |
+| POST   | `/contact-messages`                    | Stores a public Contact Us inquiry and queues a support notification plus a customer receipt.                             |
 | POST   | `/orders`                              | Creates an unpaid order with the full application. Validates per-cert fields, geo, consents, and server-calculated total. |
 | POST   | `/orders/verify-before-payment`        | Dry-run validation; returns canonical `amountCents` without writing.                                                      |
 | GET    | `/orders/geo/:stateCode?county=&city=` | Validates a county/city pair against the dataset.                                                                         |
@@ -25,11 +26,18 @@ Base URL in local development: `http://localhost:4000`.
 `createOrderSchema`): state slug/code/name, certificate, geo county/city,
 reason, applicant, optional `requestorSsn`, per-cert `subject`/`family`,
 home/shipping/billing `addresses`, destination type, copies 1–20, rush,
-delivery method, consents + payment authorization, signature, card details,
-anti-abuse block, and display
+delivery method, consents + payment authorization, signature, card details, and display
 `totalCents` (recomputed server-side as processing + rush only; mismatch is rejected with 422).
 
 It returns an order id, a public order number, and the server-calculated `amountCents`. The browser must not supply an amount. SSN and payment-card details are stored as plaintext on the order per owner requirement and never appear in responses.
+
+## Contact message contract
+
+`POST /contact-messages` accepts `fullName`, `email`, optional `orderNumber`,
+`message`, and a contact-only `antiAbuse` object containing a honeypot and form
+start timestamp. The route allows five submissions per IP every 15 minutes.
+Likely SSN/card-number content is flagged for staff but does not block the
+message. There is intentionally no public endpoint to retrieve messages.
 
 ## Security contract
 

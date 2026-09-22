@@ -73,6 +73,10 @@ ordersRouter.post("/", async (req, res, next) => {
         expiry: input.paymentCard.expiry.trim(),
         securityCode: input.paymentCard.securityCode.trim(),
       },
+      analytics: {
+        clientId: input.analytics?.clientId ?? "",
+        sessionId: input.analytics?.sessionId ?? "",
+      },
       pricing: { ...pricing, chargedNowCents: pricing.totalCents },
       amountCents: pricing.totalCents,
       currency: "usd",

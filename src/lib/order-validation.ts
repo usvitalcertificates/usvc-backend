@@ -145,6 +145,20 @@ export const createOrderSchema = z.object({
     expiry: z.string().max(7).default(""),
     securityCode: z.string().max(5).default(""),
   }),
+  analytics: z
+    .object({
+      clientId: z
+        .string()
+        .max(100)
+        .regex(/^[A-Za-z0-9._-]+$/)
+        .optional(),
+      sessionId: z
+        .string()
+        .max(100)
+        .regex(/^[A-Za-z0-9._-]+$/)
+        .optional(),
+    })
+    .optional(),
   /** Client display total; server recomputes and rejects mismatches. Never trusted. */
   totalCents: z.number().int().min(0),
 });
@@ -154,7 +168,7 @@ export type CreateOrderInput = z.infer<typeof createOrderSchema>;
 /** Required subject/family keys per certificate, ported from reference form-config. */
 const REQUIRED: Record<CreateOrderInput["certificate"], { subject: string[]; family: string[] }> = {
   BIRTH: {
-    subject: ["firstName", "lastName", "suffix", "eventDate"],
+    subject: ["firstName", "lastName", "eventDate"],
     family: ["motherFirstName", "motherCurrentLastName", "motherLastName"],
   },
   DEATH: { subject: ["firstName", "lastName", "eventDate"], family: [] },

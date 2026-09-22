@@ -21,7 +21,8 @@ Scope locked 2026-09-21: Phase 1 = public APIs to Lovable parity. Phase 2 = full
 - [ ] Anti-abuse: HMAC hash IP/email/order/session + rate-limit order creation
 - [ ] Stripe isolation: add `PAYMENT_ENVIRONMENT`, `STRIPE_{LIVE,TEST}_*`, fail-closed prefix checks, 1 live webhook with 3 events
 - [x] Email: durable Resend order confirmation queued by paid Stripe webhooks, with provider idempotency, retry leasing, staging recipient override, and branded HTML/text templates — done 2026-09-22
-- [ ] GA4: server purchase outbox + retry endpoint (secret-gated)
+- [x] Contact messages: persistent MongoDB inbox plus resilient support notification/customer receipt emails — done 2026-09-22
+- [x] GA4: production-only browser funnel plus durable server-side purchase outbox from signed paid webhooks — done 2026-09-22
 - [ ] Proof: `npm run build && npm test` passes
 
 ## Phase 2 (deferred)

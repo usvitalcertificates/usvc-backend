@@ -83,6 +83,17 @@ for (const cert of ["BIRTH", "DEATH", "MARRIAGE", "DIVORCE"] as const) {
   });
 }
 
+test("does not require a birth subject suffix", () => {
+  const input = createOrderSchema.parse({
+    ...base("BIRTH"),
+    ...SUBJECTS.BIRTH,
+    subject: { firstName: "Baby", lastName: "Doe", eventDate: "2020-01-15" },
+  });
+  const result = validateOrderSubmission(input);
+  assert.equal(result.ok, true, JSON.stringify(result.errors));
+  assert.equal(result.errors["subject.suffix"], undefined);
+});
+
 test("removes legacy name-history and alternate-spelling subject fields", () => {
   const input = createOrderSchema.parse({
     ...base("BIRTH"),

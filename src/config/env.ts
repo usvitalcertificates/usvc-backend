@@ -20,16 +20,37 @@ const schema = z
     EMAIL_FROM: z.string().min(1).optional(),
     EMAIL_REPLY_TO: z.string().email().optional(),
     EMAIL_RECIPIENT_OVERRIDE: z.string().email().optional(),
+    ANALYTICS_ENABLED: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
+    GA_MEASUREMENT_ID: z
+      .string()
+      .regex(/^G-[A-Z0-9]+$/)
+      .optional(),
+    GA4_MEASUREMENT_PROTOCOL_API_SECRET: z.string().min(1).optional(),
   })
   .superRefine((value, context) => {
-    if (!value.EMAIL_ENABLED) return;
-    for (const key of ["RESEND_API_KEY", "EMAIL_FROM", "EMAIL_REPLY_TO"] as const) {
-      if (!value[key])
-        context.addIssue({
-          code: "custom",
-          path: [key],
-          message: `${key} is required when EMAIL_ENABLED=true`,
-        });
+    if (value.EMAIL_ENABLED) {
+      for (const key of ["RESEND_API_KEY", "EMAIL_FROM", "EMAIL_REPLY_TO"] as const) {
+        if (!value[key])
+          context.addIssue({
+            code: "custom",
+            path: [key],
+            message: `${key} is required when EMAIL_ENABLED=true`,
+          });
+      }
+    }
+    if (
+      value.ANALYTICS_ENABLED &&
+      (!value.GA_MEASUREMENT_ID || !value.GA4_MEASUREMENT_PROTOCOL_API_SECRET)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["GA_MEASUREMENT_ID"],
+        message:
+          "GA_MEASUREMENT_ID and GA4_MEASUREMENT_PROTOCOL_API_SECRET are required when ANALYTICS_ENABLED=true",
+      });
     }
   });
 export const env = schema.parse(process.env);
