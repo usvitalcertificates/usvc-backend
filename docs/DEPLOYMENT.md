@@ -39,3 +39,7 @@ Deploy `usvc-backend/` to Render using [render.yaml](../render.yaml). The build 
 6. For production, repeat the Stripe destination in live mode and use a production Resend key. Do not define `EMAIL_RECIPIENT_OVERRIDE` in production.
 
 Confirmation emails are created only by signed Stripe success events. A MongoDB outbox retries temporary delivery failures without changing payment state. Failed jobs can be inspected in the `email_outbox` collection without exposing application or payment-card details.
+
+## Email logo and inbox avatar
+
+Every HTML email loads the public logo from `https://www.usvitalcertificates.org/assets/usvc-logo.png`; no additional application environment variable is required. To show the logo beside the sender in supported inboxes, publish SPF/DKIM and a DMARC policy of `p=quarantine` or `p=reject` at 100%, then configure BIMI with a hosted compatible SVG and a Common Mark Certificate or Verified Mark Certificate for Gmail support. Also register the business and upload the square PNG through Apple Business Connect for Apple Branded Mail. Inbox clients control whether an avatar is shown; Outlook does not reliably support this branding path.
