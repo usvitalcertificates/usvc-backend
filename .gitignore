@@ -10,3 +10,7 @@ dist/
 # system
 .DS_Store
 tsconfig.tsbuildinfo
+
+# agent skills (local tooling)
+.agents/
+skills-lock.json
