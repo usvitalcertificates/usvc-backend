@@ -10,6 +10,16 @@ import { StaffUser } from "../models/staff.js";
 export const staffRouter = Router();
 staffRouter.use(requireAuth, requireActiveStaff);
 
+/**
+ * Strict query-flag parsing. Unlike z.coerce.boolean() (where ANY non-empty
+ * string, including "false" or "no", becomes true), only explicit truthy
+ * tokens enable the flag — anything else is safely off.
+ */
+const staffFlag = z
+  .enum(["true", "false", "1", "0"])
+  .default("false")
+  .transform((value) => value === "true" || value === "1");
+
 const reqUser = (req: Request): AuthUser => {
   const user = (req as Request & { user?: AuthUser }).user;
   if (!user) throw new ApiError(401, "Authentication required");
@@ -50,10 +60,10 @@ staffRouter.get("/orders", async (req, res, next) => {
         status: z.enum(["PAID", "IN_REVIEW", "ON_HOLD", "NEED_INFO", "SUBMITTED"]).optional(),
         certificate: z.enum(["BIRTH", "DEATH", "MARRIAGE", "DIVORCE"]).optional(),
         assigned: z.enum(["mine", "unassigned", "all"]).default("all"),
-        openOnly: z.coerce.boolean().default(false),
+        openOnly: staffFlag,
         // Parked exceptions first, then rush, then oldest (My Work default).
-        attentionFirst: z.coerce.boolean().default(false),
-        rushOnly: z.coerce.boolean().default(false),
+        attentionFirst: staffFlag,
+        rushOnly: staffFlag,
         page: z.coerce.number().int().min(1).default(1),
       })
       .parse(req.query);
