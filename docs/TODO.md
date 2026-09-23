@@ -43,6 +43,7 @@ Scope: Phase 1 (public APIs) and Phase 2 (staff MVP) are built; PRs `feat/fulfil
 - [x] Latest-activity ordering 2026-09-23: queue sorts `updatedAt` desc by default (attention bands keep priority, newest first within bands); touching an order bumps it to row 1 (E2E proven)
 - [x] Submission email 2026-09-23: `SUBMISSION_NOTIFICATION` template (recall block + next steps + tracking link, escaped, no secrets) queued once on SUBMITTED via idempotent upsert; worker renders through existing pipeline with `submission_email_sent/failed` audit; E2E proven (one job, correct recipient, IN_REVIEW queues nothing)
 - [x] Invitation outbox fix 2026-09-23: `select:false` on `setupToken` starved the stale-check, silently deleting every invite — lease now selects it; guard extracted to tested `isInviteJobCurrent()`; scratch-DB proof (leased token present, job current)
+- [x] Invitation dispatch nesting fix 2026-09-23: branch lived after the contact lookup and threw before Resend — lifted top-level; decision extracted to tested `resolveStaffInvitation()` (stale/missing/null drop, current sends, never needs contact data)
 
 ## Phase 3 (remaining + proposed backlog)
 

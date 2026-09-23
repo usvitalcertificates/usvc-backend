@@ -21,3 +21,37 @@ test("invitation email contains the link and escapes the staff name", () => {
   assert.ok(!email.html.includes("<img")); // no remote images: inbox-safe by construction
   assert.ok(email.text.includes("https://flow.example/auth?setup=t"));
 });
+
+test("invitation dispatch sends current jobs and drops stale ones without contact data", async () => {
+  const { resolveStaffInvitation } = await import("./staff-email.js");
+  const { newInviteToken } = await import("./staff-auth.js");
+  const { token, tokenHash } = newInviteToken();
+  const { token: otherToken } = newInviteToken();
+
+  const send = resolveStaffInvitation(
+    { fullName: "Amy", inviteTokenHash: tokenHash },
+    token,
+    "https://flow.example",
+  );
+  assert.ok(!("drop" in send) && send.email.html.includes("/auth?setup="));
+
+  // Re-sent invite rotates the hash: older job drops quietly.
+  assert.deepEqual(
+    resolveStaffInvitation(
+      { fullName: "Amy", inviteTokenHash: tokenHash },
+      otherToken,
+      "https://flow.example",
+    ),
+    { drop: true },
+  );
+  // Missing token or missing account also drops (never throws, never needs contact data).
+  assert.deepEqual(
+    resolveStaffInvitation(
+      { fullName: "Amy", inviteTokenHash: tokenHash },
+      undefined,
+      "https://flow.example",
+    ),
+    { drop: true },
+  );
+  assert.deepEqual(resolveStaffInvitation(null, token, "https://flow.example"), { drop: true });
+});
