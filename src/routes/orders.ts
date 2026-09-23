@@ -11,6 +11,7 @@ import {
   validateOrderSubmission,
 } from "../lib/order-validation.js";
 import { Order } from "../models/order.js";
+import { EmailOutbox } from "../models/email-outbox.js";
 import { nextOrderSequence } from "../models/counter.js";
 import { ApiError } from "../middleware/errors.js";
 import { requireAuth, type AuthUser } from "../middleware/auth.js";
@@ -469,6 +470,25 @@ ordersRouter.patch("/:id/status", requireAuth, async (req, res, next) => {
       createdAt: occurredAt,
     });
     await order.save();
+    // Staff-submitted orders notify the customer once. SUBMITTED is terminal
+    // so this fires a single time; the upsert key guards replays. Silent
+    // when email is disabled (local dev / email-off envs).
+    if (status === "SUBMITTED" && env.EMAIL_ENABLED) {
+      await EmailOutbox.updateOne(
+        { _id: `submission-notification:${order._id.toHexString()}` },
+        {
+          $setOnInsert: {
+            orderId: order._id,
+            recipient: order.applicant.email,
+            template: "SUBMISSION_NOTIFICATION",
+            status: "PENDING",
+            attempts: 0,
+            nextAttemptAt: occurredAt,
+          },
+        },
+        { upsert: true },
+      );
+    }
     res.json({ status: order.status, updatedAt: order.updatedAt });
   } catch (e) {
     next(e);

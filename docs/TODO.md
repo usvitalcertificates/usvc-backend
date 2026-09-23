@@ -41,6 +41,7 @@ Scope: Phase 1 (public APIs) and Phase 2 (staff MVP) are built; PRs `feat/fulfil
 - [x] Strict query flags 2026-09-23: `openOnly`/`attentionFirst`/`rushOnly` accept only explicit truthy tokens (garbage → 400, never silent-true); 10-case filter matrix E2E green on fresh server
 - [x] Rate-limit JSON + driver cleanup 2026-09-23: global limiter returns a JSON message like all others (no more parser SyntaxError in UI); `{new:true}` → `returnDocument:"after"` (claim verified E2E, deprecation warning gone)
 - [x] Latest-activity ordering 2026-09-23: queue sorts `updatedAt` desc by default (attention bands keep priority, newest first within bands); touching an order bumps it to row 1 (E2E proven)
+- [x] Submission email 2026-09-23: `SUBMISSION_NOTIFICATION` template (recall block + next steps + tracking link, escaped, no secrets) queued once on SUBMITTED via idempotent upsert; worker renders through existing pipeline with `submission_email_sent/failed` audit; E2E proven (one job, correct recipient, IN_REVIEW queues nothing)
 
 ## Phase 3 (remaining + proposed backlog)
 

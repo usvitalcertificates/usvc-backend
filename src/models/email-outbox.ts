@@ -24,6 +24,7 @@ const EmailOutboxSchema = new Schema(
         "CONTACT_SUPPORT_NOTIFICATION",
         "CONTACT_CUSTOMER_RECEIPT",
         "STAFF_INVITATION",
+        "SUBMISSION_NOTIFICATION",
       ],
       required: true,
     },

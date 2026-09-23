@@ -5,6 +5,7 @@ import { EmailOutbox } from "../models/email-outbox.js";
 import { Order } from "../models/order.js";
 import { StaffUser } from "../models/staff.js";
 import { buildStaffSetupUrl, renderStaffInvitationEmail } from "./staff-email.js";
+import { renderSubmissionNotificationEmail } from "./submission-notification-email.js";
 import { hashInviteToken } from "./staff-auth.js";
 import { renderContactCustomerReceipt, renderContactSupportEmail } from "./contact-email.js";
 import { renderPaymentConfirmationEmail } from "./payment-confirmation-email.js";
@@ -58,6 +59,22 @@ export async function processNextEmail(): Promise<boolean> {
           certificate: order.certificate,
           copies: order.copies,
           pricing: order.pricing,
+        },
+        env.FRONTEND_URL,
+      );
+      replyTo = env.EMAIL_REPLY_TO!;
+    } else if (message.template === "SUBMISSION_NOTIFICATION") {
+      const order = await Order.findById(message.orderId).lean();
+      if (!order) throw new Error("Order for submission email no longer exists");
+      email = renderSubmissionNotificationEmail(
+        {
+          publicNumber: order.publicNumber,
+          stateName: order.stateName,
+          certificate: order.certificate,
+          copies: order.copies,
+          rush: order.rush,
+          requestorFirstName: order.applicant?.firstName || "",
+          submittedAt: order.customerTimeline?.submittedToAgencyAt ?? order.updatedAt,
         },
         env.FRONTEND_URL,
       );
@@ -154,12 +171,20 @@ async function recordEmailAudit(
   metadata: Record<string, unknown>,
 ): Promise<void> {
   if (message.orderId) {
+    const submitted = message.template === "SUBMISSION_NOTIFICATION";
     await Order.updateOne(
       { _id: message.orderId },
       {
         $push: {
           auditEvents: {
-            action: outcome === "sent" ? "confirmation_email_sent" : "confirmation_email_failed",
+            action:
+              outcome === "sent"
+                ? submitted
+                  ? "submission_email_sent"
+                  : "confirmation_email_sent"
+                : submitted
+                  ? "submission_email_failed"
+                  : "confirmation_email_failed",
             metadata,
             createdAt,
           },
