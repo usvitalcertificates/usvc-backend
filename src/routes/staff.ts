@@ -142,15 +142,16 @@ staffRouter.get("/orders", async (req, res, next) => {
             },
           },
         },
-        { $sort: { __priority: 1, createdAt: 1 } },
+        { $sort: { __priority: 1, updatedAt: -1 } },
         { $skip: skip },
         { $limit: limit },
         { $project: projection },
         { $unset: "__priority" },
       ]);
     } else {
+      // Default: most recently active first in every list view.
       rows = (await Order.find(match, projection)
-        .sort({ createdAt: 1 })
+        .sort({ updatedAt: -1 })
         .skip(skip)
         .limit(limit)
         .lean()) as QueueRow[];
