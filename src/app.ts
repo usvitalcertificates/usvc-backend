@@ -25,7 +25,15 @@ app.get("/health", (req, res) => res.json({ status: "ok", service: "usvc-api" })
 app.use("/webhooks", express.raw({ type: "application/json" }), webhookRouter);
 app.use(express.json({ limit: "100kb" }));
 app.use(
-  rateLimit({ windowMs: 15 * 60 * 1000, limit: 100, standardHeaders: true, legacyHeaders: false }),
+  rateLimit({
+    windowMs: 15 * 60 * 1000,
+    limit: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
+    // JSON body (not the default plain-text message) so API consumers can
+    // always parse error responses, including the staff portal proxy.
+    message: { message: "Too many requests. Please wait a few minutes and try again." },
+  }),
 );
 app.use("/auth", authRouter);
 app.use("/admin", adminRouter);

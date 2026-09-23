@@ -216,7 +216,7 @@ staffRouter.post("/orders/:id/claim", async (req, res, next) => {
         $set: { assignedTo: user.sub },
         $push: { auditEvents: orderEvent(user.sub, "order_claimed") },
       },
-      { new: true, projection: { publicNumber: 1, status: 1 } },
+      { returnDocument: "after", projection: { publicNumber: 1, status: 1 } },
     );
     if (!order) {
       const existing = await Order.findById(id, { assignedTo: 1, paymentStatus: 1 }).lean();

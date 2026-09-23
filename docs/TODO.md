@@ -39,6 +39,7 @@ Scope: Phase 1 (public APIs) and Phase 2 (staff MVP) are built; PRs `feat/fulfil
 - [x] Queue filters: `certificate` (order-type) + `openOnly` (open vs closed views) — done 2026-09-23
 - [x] Queue attention sort 2026-09-23: `attentionFirst` (exceptions → rush → oldest via aggregation) + `rushOnly`; `attentionPriority()` unit-tested
 - [x] Strict query flags 2026-09-23: `openOnly`/`attentionFirst`/`rushOnly` accept only explicit truthy tokens (garbage → 400, never silent-true); 10-case filter matrix E2E green on fresh server
+- [x] Rate-limit JSON + driver cleanup 2026-09-23: global limiter returns a JSON message like all others (no more parser SyntaxError in UI); `{new:true}` → `returnDocument:"after"` (claim verified E2E, deprecation warning gone)
 
 ## Phase 3 (remaining + proposed backlog)
 
