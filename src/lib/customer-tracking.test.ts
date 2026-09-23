@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  attentionPriority,
   isAllowedStaffStatusTransition,
   isExceptionStatus,
   publicTrackingStatus,
@@ -63,4 +64,13 @@ test("shows a neutral support message for exception statuses", () => {
   });
   assert.equal(result.currentStatus, "Order Processing");
   assert.match(result.notice ?? "", /support/);
+});
+
+test("ranks exceptions first, then rush, then everything else", () => {
+  assert.equal(attentionPriority("ON_HOLD", false), 0);
+  assert.equal(attentionPriority("NEED_INFO", true), 0);
+  assert.equal(attentionPriority("PAID", true), 1);
+  assert.equal(attentionPriority("IN_REVIEW", true), 1);
+  assert.equal(attentionPriority("PAID", false), 2);
+  assert.equal(attentionPriority("SUBMITTED", false), 2);
 });

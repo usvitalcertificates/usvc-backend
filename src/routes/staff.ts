@@ -1,5 +1,6 @@
 import { Router } from "express";
 import type { Request } from "express";
+import mongoose from "mongoose";
 import { z } from "zod";
 import { requireActiveStaff, requireAuth, type AuthUser } from "../middleware/auth.js";
 import { ApiError } from "../middleware/errors.js";
@@ -50,6 +51,9 @@ staffRouter.get("/orders", async (req, res, next) => {
         certificate: z.enum(["BIRTH", "DEATH", "MARRIAGE", "DIVORCE"]).optional(),
         assigned: z.enum(["mine", "unassigned", "all"]).default("all"),
         openOnly: z.coerce.boolean().default(false),
+        // Parked exceptions first, then rush, then oldest (My Work default).
+        attentionFirst: z.coerce.boolean().default(false),
+        rushOnly: z.coerce.boolean().default(false),
         page: z.coerce.number().int().min(1).default(1),
       })
       .parse(req.query);
@@ -58,6 +62,7 @@ staffRouter.get("/orders", async (req, res, next) => {
     if (filters.status) match.status = filters.status;
     else if (filters.openOnly)
       match.status = { $in: ["PAID", "IN_REVIEW", "ON_HOLD", "NEED_INFO"] };
+    if (filters.rushOnly) match.rush = true;
     if (filters.certificate) match.certificate = filters.certificate;
     if (user.role === "ADMIN") {
       if (filters.assigned === "mine") match.assignedTo = user.sub;
@@ -83,28 +88,64 @@ staffRouter.get("/orders", async (req, res, next) => {
     }
     const limit = 25;
     const skip = (filters.page - 1) * limit;
-    const [rows, total]: [QueueRow[], number] = await Promise.all([
-      Order.find(match, {
-        publicNumber: 1,
-        stateCode: 1,
-        stateName: 1,
-        certificate: 1,
-        geo: 1,
-        "applicant.firstName": 1,
-        "applicant.lastName": 1,
-        copies: 1,
-        rush: 1,
-        status: 1,
-        assignedTo: 1,
-        createdAt: 1,
-        updatedAt: 1,
-      })
+    const projection = {
+      publicNumber: 1,
+      stateCode: 1,
+      stateName: 1,
+      certificate: 1,
+      geo: 1,
+      "applicant.firstName": 1,
+      "applicant.lastName": 1,
+      copies: 1,
+      rush: 1,
+      status: 1,
+      assignedTo: 1,
+      createdAt: 1,
+      updatedAt: 1,
+    };
+    let rows: QueueRow[];
+    if (filters.attentionFirst) {
+      // Aggregation skips Mongoose casting, so assignedTo hex strings are
+      // converted to ObjectIds explicitly. Priority mirrors
+      // attentionPriority() in customer-tracking.ts.
+      const toId = (value: unknown): unknown =>
+        typeof value === "string" && /^[0-9a-fA-F]{24}$/.test(value)
+          ? new mongoose.Types.ObjectId(value)
+          : value;
+      const aggregateMatch: Record<string, unknown> = { ...match };
+      if ("assignedTo" in aggregateMatch)
+        aggregateMatch.assignedTo = toId(aggregateMatch.assignedTo);
+      if (Array.isArray(aggregateMatch.$or))
+        aggregateMatch.$or = (aggregateMatch.$or as Record<string, unknown>[]).map((clause) =>
+          "assignedTo" in clause ? { ...clause, assignedTo: toId(clause.assignedTo) } : clause,
+        );
+      rows = await Order.aggregate([
+        { $match: aggregateMatch },
+        {
+          $addFields: {
+            __priority: {
+              $cond: [
+                { $in: ["$status", ["ON_HOLD", "NEED_INFO"]] },
+                0,
+                { $cond: ["$rush", 1, 2] },
+              ],
+            },
+          },
+        },
+        { $sort: { __priority: 1, createdAt: 1 } },
+        { $skip: skip },
+        { $limit: limit },
+        { $project: projection },
+        { $unset: "__priority" },
+      ]);
+    } else {
+      rows = (await Order.find(match, projection)
         .sort({ createdAt: 1 })
         .skip(skip)
         .limit(limit)
-        .lean(),
-      Order.countDocuments(match),
-    ]);
+        .lean()) as QueueRow[];
+    }
+    const total = await Order.countDocuments(match);
     const ownerIds = [
       ...new Set(
         rows

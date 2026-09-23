@@ -99,3 +99,14 @@ export function isAllowedStaffStatusTransition(current: string, next: string): b
 export function isExceptionStatus(status: string): boolean {
   return status === "ON_HOLD" || status === "NEED_INFO";
 }
+
+/**
+ * Queue sort weight for attention-first ordering: parked exceptions first,
+ * then rush, then everything else (oldest wins within each band).
+ * Mirrored in the staff queue aggregation pipeline — keep the two in sync.
+ */
+export function attentionPriority(status: string, rush: boolean): number {
+  if (isExceptionStatus(status)) return 0;
+  if (rush) return 1;
+  return 2;
+}

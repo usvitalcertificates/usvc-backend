@@ -37,6 +37,7 @@ Scope: Phase 1 (public APIs) and Phase 2 (staff MVP) are built; PRs `feat/fulfil
 - [x] Admin: staff roster, disable/revoke/MFA-reset, workload, combined activity feed — done 2026-09-23, E2E verified incl. session-revoke 401
 - [x] Invitation emails 2026-09-23: `STAFF_INVITATION` outbox template (`staff-email.ts` render + escaping tests), `STAFF_PORTAL_URL` env (required when `EMAIL_ENABLED=true`), invite queues email and omits token / returns token when email disabled (local dev), `POST /auth/invite/:id/resend` regenerates + drops stale pending jobs, worker redacts `setupToken` after SENT and skips stale jobs; audit `invitation_emailed/sent/failed`
 - [x] Queue filters: `certificate` (order-type) + `openOnly` (open vs closed views) — done 2026-09-23
+- [x] Queue attention sort 2026-09-23: `attentionFirst` (exceptions → rush → oldest via aggregation) + `rushOnly`; `attentionPriority()` unit-tested
 
 ## Phase 3 (remaining + proposed backlog)
 
