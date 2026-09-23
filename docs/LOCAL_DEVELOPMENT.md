@@ -17,6 +17,10 @@ npm install
 npm run dev
 ```
 
+Always test with `npm run dev` (auto-reloads current source). `npm start`
+serves the last built `dist/` output — rebuild first (`npm run build`) or
+you will silently test stale code.
+
 On startup, the API connects to MongoDB and creates safe indexes. Health is at `http://localhost:4000/health`.
 
 ## 3. Verify
