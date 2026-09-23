@@ -70,6 +70,10 @@ Funnel events (`select_state`, `select_certificate`, `order_started`, `begin_che
 
 The browser records public page and funnel activity only. A signed Stripe paid webhook atomically queues one server-side GA4 Purchase delivery in `analytics_purchase_deliveries`; the worker leases and retries it and uses the public order number as the transaction ID. No names, email addresses, phone numbers, addresses, dates of birth, SSNs, certificate subject details, card data, or Stripe identifiers are sent to GA4.
 
-## Email logo and inbox avatar
+## Email images and inbox avatar
 
-Every HTML email loads the email-sized logo from `https://www.usvitalcertificates.org/assets/usvc-logo-email.png` (256px, ~46KB — deliberately small: Gmail fetches each image once per message through its proxy, and oversized images are a common cause of permanently broken images in already-delivered messages; the proxy caches per-message results, so old broken messages can never be repaired — verify with a fresh test email); no additional application environment variable is required. To show the logo beside the sender in supported inboxes, publish SPF/DKIM and a DMARC policy of `p=quarantine` or `p=reject` at 100%, then configure BIMI with a hosted compatible SVG and a Common Mark Certificate or Verified Mark Certificate for Gmail support. Also register the business and upload the square PNG through Apple Business Connect for Apple Branded Mail. Inbox clients control whether an avatar is shown; Outlook does not reliably support this branding path.
+Transactional emails deliberately contain no remote images: Gmail and other
+providers proxy (and sometimes break) externally hosted images, so templates
+render text-only headers with the USVC name. This is enforced by tests
+(`assert.doesNotMatch(html, /<img/)` on every template). To show a logo
+beside the sender in supported inboxes, publish SPF/DKIM and a DMARC policy of `p=quarantine` or `p=reject` at 100%, then configure BIMI with a hosted compatible SVG and a Common Mark Certificate or Verified Mark Certificate for Gmail support. Also register the business and upload the square PNG through Apple Business Connect for Apple Branded Mail. Inbox clients control whether an avatar is shown; Outlook does not reliably support this branding path.

@@ -6,7 +6,7 @@ import { Order } from "../models/order.js";
 import { StaffUser } from "../models/staff.js";
 import { buildStaffSetupUrl, renderStaffInvitationEmail } from "./staff-email.js";
 import { renderSubmissionNotificationEmail } from "./submission-notification-email.js";
-import { hashInviteToken } from "./staff-auth.js";
+import { isInviteJobCurrent } from "./staff-auth.js";
 import { renderContactCustomerReceipt, renderContactSupportEmail } from "./contact-email.js";
 import { renderPaymentConfirmationEmail } from "./payment-confirmation-email.js";
 
@@ -26,6 +26,9 @@ export function sanitizeEmailError(error: unknown): string {
 }
 
 async function leaseNextMessage(now: Date) {
+  // setupToken is select:false in the schema (never returned by default
+  // projections) but the STAFF_INVITATION stale-check needs it — without this
+  // explicit select every invitation job looks stale and gets dropped.
   return EmailOutbox.findOneAndUpdate(
     {
       $or: [
@@ -38,7 +41,7 @@ async function leaseNextMessage(now: Date) {
       $inc: { attempts: 1 },
     },
     { returnDocument: "after", sort: { nextAttemptAt: 1 } },
-  );
+  ).select("+setupToken");
 }
 
 export async function processNextEmail(): Promise<boolean> {
@@ -92,10 +95,10 @@ export async function processNextEmail(): Promise<boolean> {
         // The job carries the exact token issued at invite time; if the invite
         // was re-sent since, this job is stale — drop it quietly (no retries).
         const jobToken = (message as { setupToken?: string }).setupToken;
-        const tokenCurrent =
-          !!staff &&
-          !!jobToken &&
-          hashInviteToken(jobToken) === (staff as { inviteTokenHash?: string }).inviteTokenHash;
+        const tokenCurrent = isInviteJobCurrent(
+          jobToken,
+          (staff as { inviteTokenHash?: string }).inviteTokenHash,
+        );
         if (!tokenCurrent) {
           await EmailOutbox.deleteOne({ _id: message._id });
           return true;

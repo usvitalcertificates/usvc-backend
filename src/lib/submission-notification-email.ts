@@ -1,5 +1,3 @@
-import { emailLogoHeader } from "./email-branding.js";
-
 export type SubmissionNotificationOrder = {
   publicNumber: string;
   stateName: string;
@@ -46,7 +44,6 @@ export function renderSubmissionNotificationEmail(
   <body style="margin:0;background:#ffffff;color:#000000;font-family:'Times New Roman',Times,serif;font-size:16px;line-height:1.5">
     <div style="display:none;max-height:0;overflow:hidden">Your US Vital Certificates order was submitted to the government agency on ${escapeHtml(submittedDate(order.submittedAt))}.</div>
     <main style="max-width:620px;margin:0 auto;padding:40px 24px">
-      ${emailLogoHeader()}
       <h1 style="margin:0 0 14px;color:#3c3b6e;font-size:24px;line-height:1.25">Your order is on its way to the agency</h1>
       <p style="margin:0 0 10px">${escapeHtml(greeting)}</p>
       <p style="margin:0 0 16px">Good news — we submitted your application to the government agency on <strong>${escapeHtml(submittedDate(order.submittedAt))}</strong>. Here are your order details for your records:</p>

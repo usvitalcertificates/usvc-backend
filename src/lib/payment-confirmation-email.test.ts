@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { renderPaymentConfirmationEmail } from "./payment-confirmation-email.js";
-import { EMAIL_LOGO_URL } from "./email-branding.js";
 
 test("renders the standard payment confirmation without sensitive details", () => {
   const email = renderPaymentConfirmationEmail(
@@ -30,8 +29,7 @@ test("renders the standard payment confirmation without sensitive details", () =
   assert.doesNotMatch(email.text, /Rush channel/);
   assert.match(email.html, /https:\/\/usvitalcertificates\.org\/track-order/);
   assert.match(email.text, /Amount Paid Today: \$125\.00/);
-  assert.match(email.html, new RegExp(EMAIL_LOGO_URL));
-  assert.match(email.html, /alt="US Vital Certificates logo"/);
+  assert.doesNotMatch(email.html, /<img/);
   for (const sensitiveLabel of ["SSN", "date of birth", "card number", "security code"])
     assert.doesNotMatch(`${email.html}${email.text}`, new RegExp(sensitiveLabel, "i"));
 });
