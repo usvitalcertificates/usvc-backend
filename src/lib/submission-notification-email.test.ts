@@ -36,7 +36,7 @@ test("submission email escapes the requestor name and carries no secrets", () =>
     "https://www.usvitalcertificates.org",
   );
   assert.ok(!email.html.includes("<script>"));
-  for (const forbidden of ["ssnEnc", "cardNumber", "securityCode", "confidentialData"]) {
+  for (const forbidden of ["ssnEnc", "cardNumber", "securityCode", "confidentialData", "<img"]) {
     assert.ok(!email.html.includes(forbidden));
     assert.ok(!email.text.includes(forbidden));
   }

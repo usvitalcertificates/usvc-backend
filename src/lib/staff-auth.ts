@@ -22,6 +22,19 @@ export function hashInviteToken(token: string): string {
   return createHash("sha256").update(token).digest("hex");
 }
 
+/**
+ * True when an invitation outbox job still carries the account's current
+ * token. A re-sent invite rotates the stored hash, so older jobs go stale
+ * and must be dropped without retries. A missing job token is never current
+ * (this is what silently killed every invite before the lease selected it).
+ */
+export function isInviteJobCurrent(
+  jobToken: string | undefined,
+  inviteTokenHash: string | undefined,
+): boolean {
+  return !!jobToken && !!inviteTokenHash && hashInviteToken(jobToken) === inviteTokenHash;
+}
+
 /** TOTP secret is encrypted at rest with the sensitive-data KEK. */
 export function encryptMfaSecret(base32Secret: string): string {
   return encryptSensitive(base32Secret);

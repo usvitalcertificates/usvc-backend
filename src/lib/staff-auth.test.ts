@@ -13,6 +13,7 @@ process.env.SENSITIVE_KEY_ID ??= "v1";
 
 const {
   hashInviteToken,
+  isInviteJobCurrent,
   newInviteToken,
   newTotpSecret,
   signMfaToken,
@@ -42,4 +43,15 @@ test("MFA tokens round-trip the staff id and reject tampering", () => {
   const token = signMfaToken(userId);
   assert.equal(verifyMfaToken(token), userId);
   assert.throws(() => verifyMfaToken(`${token}x`));
+});
+
+test("invite jobs are current only with the matching token", () => {
+  const { token, tokenHash } = newInviteToken();
+  const { token: otherToken } = newInviteToken();
+  assert.equal(isInviteJobCurrent(token, tokenHash), true);
+  // Re-sent invite rotates the hash: the older job goes stale.
+  assert.equal(isInviteJobCurrent(otherToken, tokenHash), false);
+  // Missing job token (e.g. unselected private field) is never current.
+  assert.equal(isInviteJobCurrent(undefined, tokenHash), false);
+  assert.equal(isInviteJobCurrent(token, undefined), false);
 });
