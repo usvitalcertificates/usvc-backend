@@ -9,7 +9,7 @@ Express is used because the project owner already has Node.js experience and nee
 MongoDB Atlas is the current managed database. Mongoose is used for all models
 (`src/models/`); the raw `mongodb` driver was removed 2026-09-21. Collection
 names are unchanged (`staff_users`, `orders`, `stripe_events`,
-`government_fees`, `attendance_records`) plus new `order_secrets`.
+`government_fees`, `attendance_records`).
 Geo datasets live in `src/data/geo/` (copied from reference) and ship to
 `dist/data/geo` via the build script.
 
@@ -31,8 +31,8 @@ wipe, no migration). Earlier AES-256-GCM vault (`order_secrets`, removed with
 
 No plaintext `ssnLast4` is kept: staff see `*********` until an audited reveal.
 Staff reads require `POST /orders/:id/reveal` authorization (assigned agent or
-super-admin) with a recorded reason (Phase 1 backend; Miles 30-second UI is
-Phase 2).
+super-admin) with a recorded reason; the staff portal renders the value with a
+30-second countdown bar, then auto-masks and wipes it.
 
 ## Payment card storage (encrypted confidentialData, locked 2026-09-23)
 
@@ -116,9 +116,9 @@ Projection-loaded docs are mutated with atomic `$push`/`$set` (never `save()`),
 so audit history is never overwritten. Staff + order audit events merge in
 `GET /admin/activity`; `GET /admin/workload` reports active/completed per agent.
 
-## Locked 2026-09-21: scope and boundaries
+## Locked 2026-09-21: scope and boundaries (refreshed 2026-09-23)
 
-- Scope: Phase 1 = public APIs first. Phase 2 = full staff suite (deferred). See `docs/TODO.md`.
-- Payments: keep PaymentIntent (already built with sig + idempotency + transaction). Do not switch to Checkout Sessions — same UX, extra complexity.
-- DB/Auth: stay Mongo + official driver + JWT + TOTP (`otpauth`). No Supabase/Postgres rewrite, no second database without a migration plan.
+- Scope: Phase 1 (public APIs) and Phase 2 (staff MVP) are built; see `docs/TODO.md` Phase 3 for the remaining backlog.
+- Payments: Stripe Checkout Sessions (`ui_mode: elements`, embedded tabs) — one charge path only; the older PaymentIntent endpoint was removed.
+- DB/Auth: stay Mongo + Mongoose + JWT + TOTP (`otpauth`). No Supabase/Postgres rewrite, no second database without a migration plan.
 - Do not build custody/vault/second-charge. Do not over-engineer: no extra plan/roadmap docs beyond `TODO.md`, `CURRENT_STATUS.md`, `DECISIONS.md`, `API.md`.

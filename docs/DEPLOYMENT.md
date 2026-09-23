@@ -46,6 +46,12 @@ Deploy `usvc-backend/` to Render using [render.yaml](../render.yaml). The build 
 
 Confirmation emails are created only by signed Stripe success events. A MongoDB outbox retries temporary delivery failures without changing payment state. Failed jobs can be inspected in the `email_outbox` collection without exposing application or payment-card details.
 
+## Staff portal staging check
+
+1. In the Render staging service, set `STAFF_PORTAL_URL` to the staging frontend origin (e.g. `https://staging.usvitalcertificates.org`) alongside the existing email settings.
+2. Invite a test address from `/staff/admin`; with `EMAIL_RECIPIENT_OVERRIDE` set, the invitation lands in the internal inbox. Click the setup link, set a password, pair an authenticator, and confirm the queue loads.
+3. Existing staging orders are kept; the queue lists paid orders only, so complete at least one Stripe test payment (or mark a test order paid) to exercise claim → status → close.
+
 ## GA4 purchase tracking
 
 1. In Google Analytics, open **Admin → Data streams**, select `G-GM4PWPHER1`, then open **Measurement Protocol API secrets**.

@@ -27,3 +27,12 @@ npm test
 ```
 
 If startup fails with an `_id index` error, ensure the index bootstrap does not attempt to create an explicit `_id` index. MongoDB creates that index automatically.
+
+## 4. Staff portal local test
+
+`EMAIL_ENABLED` defaults to `false` locally, so invites return a manual setup token instead of sending email.
+
+1. Seed one super-admin in `staff_users` (`email`, Argon2 `passwordHash`, `role: "ADMIN"`, `accountStatus: "active"`). Generate the hash with `npx tsx -e "import('argon2').then(async (a) => console.log(await a.hash('your-12-plus-char-password')))"` — never store plaintext.
+2. Run the frontend (`API_URL=http://localhost:4000`) and open `http://localhost:3000/auth`: sign in, scan the QR pairing with an authenticator app, enter the 6-digit code.
+3. Invite an agent from `/staff/admin`, open the returned setup link in an incognito window, and complete setup with a second authenticator entry.
+4. The queue lists paid orders only; locally, submit applications through the public form and set `status` + `paymentStatus` to `PAID` directly in MongoDB to simulate completed checkout (Stripe webhooks cover this on staging).

@@ -19,17 +19,17 @@ Last updated: 2026-09-23 (Node.js 24 LTS; AES-256-GCM confidentialData; staff au
 - All Resend HTML emails display the public USVC logo in a shared branded header. Inbox sender-avatar display remains controlled by recipient email clients and requires owner-managed BIMI and/or Apple Branded Mail verification.
 - `POST /contact-messages` validates and stores contact inquiries indefinitely in `contact_messages`. It has a contact-only honeypot, minimum completion time, and five-per-15-minute IP limit. Each accepted message atomically queues one support notification and one customer receipt through the same durable Resend outbox; likely SSN/card content is flagged but not blocked.
 - Checkout Sessions: `GET /orders/checkout-config`, `GET /orders/:id/summary` (whitelisted), `POST /orders/:id/checkout-session` (create/reuse, server total, 3 line items), `POST /orders/checkout-session/confirm` (Stripe-verified paid marking). PaymentIntent endpoint removed. Real $238 test payment verified end to end (embedded tabs → paid receipt, PAID/PAID + intent + audit).
-- 16 unit tests; E2E verified: two-fee totals (1-copy $125, 20-copy rush $2,530), 21-copy rejection, Visa/MC + 3-digit CVV enforcement, CA-birth SSN/DOB requirement, payment-authorization consent + Other enforcement.
+- 52 unit tests, all passing; `npm run build` clean. E2E verified: two-fee totals (1-copy $125, 20-copy rush $2,530), 21-copy rejection, Visa/MC + 3-digit CVV enforcement, CA-birth SSN/DOB requirement, payment-authorization consent + Other enforcement; staff invite → TOTP → claim → exception → close loop vs scratch DB.
 
-- MongoDB Atlas connection using the official Node.js driver and Stable API settings.
+- MongoDB Atlas connection through Mongoose; the raw `mongodb` driver was removed 2026-09-21.
 - Collections: `staff_users`, `orders`, `contact_messages`, `stripe_events`, `email_outbox`, `government_fees`, and `attendance_records`.
 - Unique/query indexes for staff email, public order number, Stripe PaymentIntent ID, fee configuration, attendance records, order tracking, and status queues.
-- Auth login, order creation, PaymentIntent creation, tracking lookup, signed Stripe webhook intake, and idempotent webhook processing.
+- Staff auth, order creation, tracking lookup, signed Stripe webhook intake, and idempotent webhook processing. Checkout uses Stripe Checkout Sessions (the older PaymentIntent endpoint was removed).
 
 ## In progress / not yet exposed as routes
 
-- Fee, report, and attendance endpoints.
-- Invitation email delivery via the Resend outbox (setup link is returned in the invite response until templates land).
+- Fee, report, and attendance endpoints (Phase 3).
+- Invitation emails send via the Resend outbox when `EMAIL_ENABLED=true`; email-disabled envs return the setup token for manual setup.
 
 ## Sensitive-data boundary
 
