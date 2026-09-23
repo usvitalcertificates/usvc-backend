@@ -4,9 +4,8 @@ import { ContactMessage } from "../models/contact-message.js";
 import { EmailOutbox } from "../models/email-outbox.js";
 import { Order } from "../models/order.js";
 import { StaffUser } from "../models/staff.js";
-import { buildStaffSetupUrl, renderStaffInvitationEmail } from "./staff-email.js";
+import { resolveStaffInvitation } from "./staff-email.js";
 import { renderSubmissionNotificationEmail } from "./submission-notification-email.js";
-import { isInviteJobCurrent } from "./staff-auth.js";
 import { renderContactCustomerReceipt, renderContactSupportEmail } from "./contact-email.js";
 import { renderPaymentConfirmationEmail } from "./payment-confirmation-email.js";
 
@@ -82,32 +81,29 @@ export async function processNextEmail(): Promise<boolean> {
         env.FRONTEND_URL,
       );
       replyTo = env.EMAIL_REPLY_TO!;
+    } else if (message.template === "STAFF_INVITATION") {
+      // Top-level branch: invitation jobs carry no contactMessageId, so they
+      // must never fall through to the contact lookup below (it throws and
+      // the invite dies in retries without ever reaching Resend).
+      const staff = await StaffUser.findById(message.staffUserId).select("+inviteTokenHash").lean();
+      const jobToken = (message as { setupToken?: string }).setupToken;
+      const resolved = resolveStaffInvitation(
+        staff as { fullName?: string; inviteTokenHash?: string } | null,
+        jobToken,
+        env.STAFF_PORTAL_URL!,
+      );
+      if ("drop" in resolved) {
+        await EmailOutbox.deleteOne({ _id: message._id });
+        return true;
+      }
+      email = resolved.email;
+      replyTo = env.EMAIL_REPLY_TO!;
     } else {
       const contact = await ContactMessage.findById(message.contactMessageId).lean();
       if (!contact) throw new Error("Contact message for email no longer exists");
       if (message.template === "CONTACT_SUPPORT_NOTIFICATION") {
         email = renderContactSupportEmail(contact);
         replyTo = contact.email;
-      } else if (message.template === "STAFF_INVITATION") {
-        const staff = await StaffUser.findById(message.staffUserId)
-          .select("+inviteTokenHash")
-          .lean();
-        // The job carries the exact token issued at invite time; if the invite
-        // was re-sent since, this job is stale — drop it quietly (no retries).
-        const jobToken = (message as { setupToken?: string }).setupToken;
-        const tokenCurrent = isInviteJobCurrent(
-          jobToken,
-          (staff as { inviteTokenHash?: string }).inviteTokenHash,
-        );
-        if (!tokenCurrent) {
-          await EmailOutbox.deleteOne({ _id: message._id });
-          return true;
-        }
-        email = renderStaffInvitationEmail({
-          fullName: staff!.fullName || "",
-          setupUrl: buildStaffSetupUrl(env.STAFF_PORTAL_URL!, jobToken!),
-        });
-        replyTo = env.EMAIL_REPLY_TO!;
       } else {
         email = renderContactCustomerReceipt(contact);
         replyTo = env.EMAIL_REPLY_TO!;
