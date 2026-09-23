@@ -47,9 +47,9 @@ export function publicTrackingStatus(order: TrackableOrder) {
     occurredAt: timeline[step.key] ?? updatedAt,
   }));
 
-  if (order.status === "CANCELLED") {
+  if (order.status === "CANCELLED" || order.status === "ON_HOLD" || order.status === "NEED_INFO") {
     return {
-      currentStatus: "Order Requires Support",
+      currentStatus: order.status === "CANCELLED" ? "Order Requires Support" : "Order Processing",
       timeline: entries,
       notice:
         "This order requires support assistance. Please contact support@usvitalcertificates.org.",
@@ -70,6 +70,8 @@ export function publicTrackingStatus(order: TrackableOrder) {
 
 export const STAFF_STATUS_TIMELINE_KEYS = {
   IN_REVIEW: "processingAt",
+  ON_HOLD: "processingAt",
+  NEED_INFO: "processingAt",
   SUBMITTED: "submittedToAgencyAt",
 } as const;
 
@@ -78,6 +80,33 @@ export const STAFF_STATUS_TRANSITIONS = {
   IN_REVIEW: "SUBMITTED",
 } as const;
 
+/** Operational exceptions: agents park an order with an internal note, then resume. */
+export const STAFF_EXCEPTION_TRANSITIONS = {
+  IN_REVIEW: ["ON_HOLD", "NEED_INFO"],
+  ON_HOLD: ["IN_REVIEW"],
+  NEED_INFO: ["IN_REVIEW"],
+} as const;
+
 export function isAllowedStaffStatusTransition(current: string, next: string): boolean {
-  return STAFF_STATUS_TRANSITIONS[current as keyof typeof STAFF_STATUS_TRANSITIONS] === next;
+  if (STAFF_STATUS_TRANSITIONS[current as keyof typeof STAFF_STATUS_TRANSITIONS] === next)
+    return true;
+  const exceptions =
+    STAFF_EXCEPTION_TRANSITIONS[current as keyof typeof STAFF_EXCEPTION_TRANSITIONS];
+  return Array.isArray(exceptions) && (exceptions as readonly string[]).includes(next);
+}
+
+/** Exceptions never advance the customer timeline; they require an internal note. */
+export function isExceptionStatus(status: string): boolean {
+  return status === "ON_HOLD" || status === "NEED_INFO";
+}
+
+/**
+ * Queue sort weight for attention-first ordering: parked exceptions first,
+ * then rush, then everything else (oldest wins within each band).
+ * Mirrored in the staff queue aggregation pipeline — keep the two in sync.
+ */
+export function attentionPriority(status: string, rush: boolean): number {
+  if (isExceptionStatus(status)) return 0;
+  if (rush) return 1;
+  return 2;
 }

@@ -33,6 +33,8 @@ const schema = z
     EMAIL_FROM: z.string().min(1).optional(),
     EMAIL_REPLY_TO: z.string().email().optional(),
     EMAIL_RECIPIENT_OVERRIDE: z.string().email().optional(),
+    /** Origin of the staff portal for invitation links, e.g. https://flow.usvitalcertificates.org */
+    STAFF_PORTAL_URL: z.string().url().optional(),
     ANALYTICS_ENABLED: z
       .enum(["true", "false"])
       .default("false")
@@ -53,6 +55,12 @@ const schema = z
             message: `${key} is required when EMAIL_ENABLED=true`,
           });
       }
+      if (!value.STAFF_PORTAL_URL)
+        context.addIssue({
+          code: "custom",
+          path: ["STAFF_PORTAL_URL"],
+          message: "STAFF_PORTAL_URL is required when EMAIL_ENABLED=true",
+        });
     }
     if (
       value.ANALYTICS_ENABLED &&

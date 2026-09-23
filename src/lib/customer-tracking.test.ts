@@ -1,6 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { isAllowedStaffStatusTransition, publicTrackingStatus } from "./customer-tracking.js";
+import {
+  attentionPriority,
+  isAllowedStaffStatusTransition,
+  isExceptionStatus,
+  publicTrackingStatus,
+} from "./customer-tracking.js";
 
 test("shows the paid customer milestones without internal status codes", () => {
   const paidAt = new Date("2026-09-22T12:00:00.000Z");
@@ -37,4 +42,35 @@ test("allows staff to move a paid order forward but never to alter payment statu
   assert.equal(isAllowedStaffStatusTransition("SUBMITTED", "COMPLETED"), false);
   assert.equal(isAllowedStaffStatusTransition("SUBMITTED", "IN_REVIEW"), false);
   assert.equal(isAllowedStaffStatusTransition("PAID", "SUBMITTED"), false);
+});
+
+test("allows exception parking with a note and resume, never skipping ahead", () => {
+  assert.equal(isAllowedStaffStatusTransition("IN_REVIEW", "ON_HOLD"), true);
+  assert.equal(isAllowedStaffStatusTransition("IN_REVIEW", "NEED_INFO"), true);
+  assert.equal(isAllowedStaffStatusTransition("ON_HOLD", "IN_REVIEW"), true);
+  assert.equal(isAllowedStaffStatusTransition("NEED_INFO", "IN_REVIEW"), true);
+  assert.equal(isAllowedStaffStatusTransition("PAID", "ON_HOLD"), false);
+  assert.equal(isAllowedStaffStatusTransition("ON_HOLD", "SUBMITTED"), false);
+  assert.equal(isExceptionStatus("ON_HOLD"), true);
+  assert.equal(isExceptionStatus("SUBMITTED"), false);
+});
+
+test("shows a neutral support message for exception statuses", () => {
+  const result = publicTrackingStatus({
+    paymentStatus: "PAID",
+    status: "ON_HOLD",
+    updatedAt: new Date("2026-09-22T12:00:00.000Z"),
+    customerTimeline: {},
+  });
+  assert.equal(result.currentStatus, "Order Processing");
+  assert.match(result.notice ?? "", /support/);
+});
+
+test("ranks exceptions first, then rush, then everything else", () => {
+  assert.equal(attentionPriority("ON_HOLD", false), 0);
+  assert.equal(attentionPriority("NEED_INFO", true), 0);
+  assert.equal(attentionPriority("PAID", true), 1);
+  assert.equal(attentionPriority("IN_REVIEW", true), 1);
+  assert.equal(attentionPriority("PAID", false), 2);
+  assert.equal(attentionPriority("SUBMITTED", false), 2);
 });

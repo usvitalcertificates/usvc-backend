@@ -7,11 +7,38 @@ const models = mongoose.models as Record<string, any>;
 const StaffUserSchema = new Schema(
   {
     email: { type: String, required: true, unique: true, index: true },
+    fullName: { type: String, default: "" },
     passwordHash: { type: String, required: true },
     role: { type: String, enum: ["ADMIN", "STAFF"], required: true },
-    mfaSecret: { type: String },
+    accountStatus: {
+      type: String,
+      enum: ["pending", "active", "disabled", "blocked"],
+      default: "active",
+      index: true,
+    },
+    /** Single-use invitation token (sha256 hex). Cleared on setup. */
+    inviteTokenHash: { type: String, select: false },
+    inviteExpiresAt: { type: Date },
+    /** TOTP secret, AES-256-GCM ciphertext via SENSITIVE_ENCRYPTION_KEY. */
+    mfaSecret: { type: String, select: false },
     mfaEnabled: { type: Boolean, default: false },
-    refreshTokenHash: { type: String },
+    mfaEnrolledAt: { type: Date },
+    mfaLastVerifiedAt: { type: Date },
+    refreshTokenHash: { type: String, select: false },
+    /** Revokes sessions/tokens issued before this time. */
+    sessionsRevokedAt: { type: Date },
+    failedLoginAttempts: { type: Number, default: 0 },
+    lockedUntil: { type: Date },
+    lastLoginAt: { type: Date },
+    lastActivityAt: { type: Date },
+    auditEvents: [
+      {
+        actorId: String,
+        action: String,
+        metadata: Schema.Types.Mixed,
+        createdAt: { type: Date, default: Date.now },
+      },
+    ],
   },
   { timestamps: true },
 );

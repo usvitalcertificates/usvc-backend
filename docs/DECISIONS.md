@@ -9,7 +9,7 @@ Express is used because the project owner already has Node.js experience and nee
 MongoDB Atlas is the current managed database. Mongoose is used for all models
 (`src/models/`); the raw `mongodb` driver was removed 2026-09-21. Collection
 names are unchanged (`staff_users`, `orders`, `stripe_events`,
-`government_fees`, `attendance_records`) plus new `order_secrets`.
+`government_fees`, `attendance_records`).
 Geo datasets live in `src/data/geo/` (copied from reference) and ship to
 `dist/data/geo` via the build script.
 
@@ -31,8 +31,8 @@ wipe, no migration). Earlier AES-256-GCM vault (`order_secrets`, removed with
 
 No plaintext `ssnLast4` is kept: staff see `*********` until an audited reveal.
 Staff reads require `POST /orders/:id/reveal` authorization (assigned agent or
-super-admin) with a recorded reason (Phase 1 backend; Miles 30-second UI is
-Phase 2).
+super-admin) with a recorded reason; the staff portal renders the value with a
+30-second countdown bar, then auto-masks and wipes it.
 
 ## Payment card storage (encrypted confidentialData, locked 2026-09-23)
 
@@ -77,9 +77,48 @@ Payment-confirmation email uses Resend and is triggered only by signed Stripe su
 
 Pricing is calculated in integer cents on the server. Two-fee model (owner decision 2026-09-21, matching usvitalrecords.org): only the $125/copy Online Processing Fee plus optional $30 rush is charged now (`priceOrder`). Government / agency / shipping fees are charged separately later via the stored card and never enter the order total. The old all-inclusive bundle formula was removed from pricing, sessions, and all UI.
 
-## Locked 2026-09-21: scope and boundaries
+## Staff auth (custom TOTP, locked 2026-09-23)
 
-- Scope: Phase 1 = public APIs first. Phase 2 = full staff suite (deferred). See `docs/TODO.md`.
-- Payments: keep PaymentIntent (already built with sig + idempotency + transaction). Do not switch to Checkout Sessions — same UX, extra complexity.
-- DB/Auth: stay Mongo + official driver + JWT + TOTP (`otpauth`). No Supabase/Postgres rewrite, no second database without a migration plan.
+Invite-only: super-admin `POST /auth/invite` creates a pending STAFF account with
+a single-use setup token (sha256-hashed, 48h expiry); the member sets their own
+12+ char password via `POST /auth/setup`. Login is two steps: `POST /auth/login`
+(email + password, 5-fail/15min lockout) returns a 10-minute MFA token, then
+`POST /auth/mfa/enroll|confirm` (first pairing, QR + manual key shown once) or
+`POST /auth/mfa/verify` (daily) issues 30m access + 7d rotating refresh JWTs.
+TOTP secrets are AES-256-GCM ciphertext at rest (same KEK as confidentialData);
+`otpauth` validates with ±1 step drift. `requireActiveStaff` refuses
+disabled/blocked accounts and any token issued before `sessionsRevokedAt`
+(MFA reset / revoke / disable). MFA reset clears the pairing, revokes sessions,
+and is audit-logged. 30-minute inactivity sign-out is enforced by short access
+tokens plus the frontend timer.
+
+## Invitation emails (locked 2026-09-23)
+
+`STAFF_INVITATION` reuses the durable Resend outbox (lease/retry, staging
+recipient override). The job carries the single-use setup token so the worker
+can build `{STAFF_PORTAL_URL}/auth?setup=…`; the token is `$unset` the moment
+the email is SENT, and stale jobs (invite re-sent since) are dropped without
+retries. Email-enabled envs never return the token in the invite response;
+email-disabled envs (local dev) return it for manual setup. `POST
+/auth/invite/:id/resend` regenerates the token and re-queues. Audit:
+`invitation_emailed/sent/failed` on the staff doc.
+
+## Fulfillment queue and audit (locked 2026-09-23)
+
+Agents see paid unassigned orders plus their own; admins see all. List rows are
+masked (requestor first name + last initial, no contact/PII). Claim is an atomic
+`findOneAndUpdate {assignedTo: null, PAID}` — exactly one agent wins (409
+otherwise). Only the owner-agent or super-admin may open detail, add notes,
+reveal, or change status. Statuses: `PAID → IN_REVIEW → SUBMITTED` (terminal)
+plus `ON_HOLD` / `NEED_INFO` park-and-resume from `IN_REVIEW`, which require an
+internal note and show only a neutral support message on public tracking.
+Projection-loaded docs are mutated with atomic `$push`/`$set` (never `save()`),
+so audit history is never overwritten. Staff + order audit events merge in
+`GET /admin/activity`; `GET /admin/workload` reports active/completed per agent.
+
+## Locked 2026-09-21: scope and boundaries (refreshed 2026-09-23)
+
+- Scope: Phase 1 (public APIs) and Phase 2 (staff MVP) are built; see `docs/TODO.md` Phase 3 for the remaining backlog.
+- Payments: Stripe Checkout Sessions (`ui_mode: elements`, embedded tabs) — one charge path only; the older PaymentIntent endpoint was removed.
+- DB/Auth: stay Mongo + Mongoose + JWT + TOTP (`otpauth`). No Supabase/Postgres rewrite, no second database without a migration plan.
 - Do not build custody/vault/second-charge. Do not over-engineer: no extra plan/roadmap docs beyond `TODO.md`, `CURRENT_STATUS.md`, `DECISIONS.md`, `API.md`.

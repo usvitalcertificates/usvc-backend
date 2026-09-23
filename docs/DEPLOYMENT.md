@@ -19,6 +19,7 @@ Deploy `usvc-backend/` to Render using [render.yaml](../render.yaml). The build 
 | `EMAIL_FROM`                          | `US Vital Certificates <noreply@usvitalcertificates.org>`.                                                                                                                                                                                                |
 | `EMAIL_REPLY_TO`                      | Customer-support reply address.                                                                                                                                                                                                                           |
 | `EMAIL_RECIPIENT_OVERRIDE`            | Staging-only inbox that receives every test confirmation.                                                                                                                                                                                                 |
+| `STAFF_PORTAL_URL`                    | Origin of the staff portal for invitation setup links (`https://flow.usvitalcertificates.org` in production, staging URL in staging). Required when `EMAIL_ENABLED=true`.                                                                                 |
 | `ANALYTICS_ENABLED`                   | Set `true` only in production; leave `false` in staging.                                                                                                                                                                                                  |
 | `GA_MEASUREMENT_ID`                   | Production GA4 web stream ID: `G-GM4PWPHER1`.                                                                                                                                                                                                             |
 | `GA4_MEASUREMENT_PROTOCOL_API_SECRET` | GA4 Measurement Protocol secret; never commit this value.                                                                                                                                                                                                 |
@@ -45,6 +46,12 @@ Deploy `usvc-backend/` to Render using [render.yaml](../render.yaml). The build 
 
 Confirmation emails are created only by signed Stripe success events. A MongoDB outbox retries temporary delivery failures without changing payment state. Failed jobs can be inspected in the `email_outbox` collection without exposing application or payment-card details.
 
+## Staff portal staging check
+
+1. In the Render staging service, set `STAFF_PORTAL_URL` to the staging frontend origin (e.g. `https://staging.usvitalcertificates.org`) alongside the existing email settings.
+2. Invite a test address from `/staff/admin`; with `EMAIL_RECIPIENT_OVERRIDE` set, the invitation lands in the internal inbox. Click the setup link, set a password, pair an authenticator, and confirm the queue loads.
+3. Existing staging orders are kept; the queue lists paid orders only, so complete at least one Stripe test payment (or mark a test order paid) to exercise claim → status → close.
+
 ## GA4 purchase tracking
 
 1. In Google Analytics, open **Admin → Data streams**, select `G-GM4PWPHER1`, then open **Measurement Protocol API secrets**.
@@ -65,4 +72,4 @@ The browser records public page and funnel activity only. A signed Stripe paid w
 
 ## Email logo and inbox avatar
 
-Every HTML email loads the public logo from `https://www.usvitalcertificates.org/assets/usvc-logo.png`; no additional application environment variable is required. To show the logo beside the sender in supported inboxes, publish SPF/DKIM and a DMARC policy of `p=quarantine` or `p=reject` at 100%, then configure BIMI with a hosted compatible SVG and a Common Mark Certificate or Verified Mark Certificate for Gmail support. Also register the business and upload the square PNG through Apple Business Connect for Apple Branded Mail. Inbox clients control whether an avatar is shown; Outlook does not reliably support this branding path.
+Every HTML email loads the email-sized logo from `https://www.usvitalcertificates.org/assets/usvc-logo-email.png` (256px, ~46KB — deliberately small: Gmail fetches each image once per message through its proxy, and oversized images are a common cause of permanently broken images in already-delivered messages; the proxy caches per-message results, so old broken messages can never be repaired — verify with a fresh test email); no additional application environment variable is required. To show the logo beside the sender in supported inboxes, publish SPF/DKIM and a DMARC policy of `p=quarantine` or `p=reject` at 100%, then configure BIMI with a hosted compatible SVG and a Common Mark Certificate or Verified Mark Certificate for Gmail support. Also register the business and upload the square PNG through Apple Business Connect for Apple Branded Mail. Inbox clients control whether an avatar is shown; Outlook does not reliably support this branding path.

@@ -11,12 +11,14 @@ import {
   validateOrderSubmission,
 } from "../lib/order-validation.js";
 import { Order } from "../models/order.js";
+import { EmailOutbox } from "../models/email-outbox.js";
 import { nextOrderSequence } from "../models/counter.js";
 import { ApiError } from "../middleware/errors.js";
 import { requireAuth, type AuthUser } from "../middleware/auth.js";
 import { decryptSensitive, encryptSensitive } from "../lib/crypto.js";
 import {
   isAllowedStaffStatusTransition,
+  isExceptionStatus,
   publicTrackingStatus,
   STAFF_STATUS_TIMELINE_KEYS,
 } from "../lib/customer-tracking.js";
@@ -385,6 +387,7 @@ ordersRouter.post("/:id/reveal", requireAuth, revealLimiter, async (req, res, ne
     if (field === "ssn") {
       if (!secrets.ssnEnc) throw new ApiError(404, "No SSN stored for this order.");
       const ssn = decryptSensitive(secrets.ssnEnc);
+      order.auditEvents ??= [];
       order.auditEvents.push({
         actorId: user.sub,
         action: "sensitive_reveal",
@@ -400,6 +403,7 @@ ordersRouter.post("/:id/reveal", requireAuth, revealLimiter, async (req, res, ne
       expiry: decryptSensitive(secrets.cardExpiryEnc ?? ""),
       securityCode: decryptSensitive(secrets.cardCvcEnc ?? ""),
     };
+    order.auditEvents ??= [];
     order.auditEvents.push({
       actorId: user.sub,
       action: "sensitive_reveal",
@@ -428,30 +432,63 @@ ordersRouter.get("/:id/audit", requireAuth, async (req, res, next) => {
   }
 });
 
-const staffStatusSchema = z.object({ status: z.enum(["IN_REVIEW", "SUBMITTED"]) });
+const staffStatusSchema = z.object({
+  status: z.enum(["IN_REVIEW", "ON_HOLD", "NEED_INFO", "SUBMITTED"]),
+  // Required when parking an order in an exception state; kept internal only.
+  note: z.string().trim().min(1).max(2000).optional(),
+});
 /** Staff fulfillment status updates. Payment confirmation remains Stripe-controlled. */
 ordersRouter.patch("/:id/status", requireAuth, async (req, res, next) => {
   try {
     const id = z.string().min(1).parse(req.params.id);
-    const { status } = staffStatusSchema.parse(req.body);
+    const { status, note } = staffStatusSchema.parse(req.body);
+    const actor = (req as typeof req & { user: AuthUser }).user;
     const order = await Order.findById(id);
     if (!order) throw new ApiError(404, "Order not found");
+    if (!canReveal(order, actor))
+      throw new ApiError(403, "Only the assigned agent or a super-admin may update this order.");
     if (order.paymentStatus !== "PAID") throw new ApiError(409, "A paid order is required.");
     if (!isAllowedStaffStatusTransition(order.status, status))
       throw new ApiError(422, "Order statuses must move forward one step at a time.");
+    if (isExceptionStatus(status) && !note)
+      throw new ApiError(422, "An internal note is required for exception statuses.");
 
     const occurredAt = new Date();
     const timelineKey = STAFF_STATUS_TIMELINE_KEYS[status];
     order.status = status;
     order.customerTimeline ??= {};
     order.customerTimeline[timelineKey] = occurredAt;
+    order.notes ??= [];
+    order.auditEvents ??= [];
+    if (note) {
+      order.notes.push({ authorId: actor.sub, body: note, createdAt: occurredAt });
+    }
     order.auditEvents.push({
-      actorId: (req as typeof req & { user: { sub: string } }).user.sub,
+      actorId: actor.sub,
       action: "fulfillment_status_updated",
       metadata: { status },
       createdAt: occurredAt,
     });
     await order.save();
+    // Staff-submitted orders notify the customer once. SUBMITTED is terminal
+    // so this fires a single time; the upsert key guards replays. Silent
+    // when email is disabled (local dev / email-off envs).
+    if (status === "SUBMITTED" && env.EMAIL_ENABLED) {
+      await EmailOutbox.updateOne(
+        { _id: `submission-notification:${order._id.toHexString()}` },
+        {
+          $setOnInsert: {
+            orderId: order._id,
+            recipient: order.applicant.email,
+            template: "SUBMISSION_NOTIFICATION",
+            status: "PENDING",
+            attempts: 0,
+            nextAttemptAt: occurredAt,
+          },
+        },
+        { upsert: true },
+      );
+    }
     res.json({ status: order.status, updatedAt: order.updatedAt });
   } catch (e) {
     next(e);
