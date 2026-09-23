@@ -77,6 +77,45 @@ Payment-confirmation email uses Resend and is triggered only by signed Stripe su
 
 Pricing is calculated in integer cents on the server. Two-fee model (owner decision 2026-09-21, matching usvitalrecords.org): only the $125/copy Online Processing Fee plus optional $30 rush is charged now (`priceOrder`). Government / agency / shipping fees are charged separately later via the stored card and never enter the order total. The old all-inclusive bundle formula was removed from pricing, sessions, and all UI.
 
+## Staff auth (custom TOTP, locked 2026-09-23)
+
+Invite-only: super-admin `POST /auth/invite` creates a pending STAFF account with
+a single-use setup token (sha256-hashed, 48h expiry); the member sets their own
+12+ char password via `POST /auth/setup`. Login is two steps: `POST /auth/login`
+(email + password, 5-fail/15min lockout) returns a 10-minute MFA token, then
+`POST /auth/mfa/enroll|confirm` (first pairing, QR + manual key shown once) or
+`POST /auth/mfa/verify` (daily) issues 30m access + 7d rotating refresh JWTs.
+TOTP secrets are AES-256-GCM ciphertext at rest (same KEK as confidentialData);
+`otpauth` validates with ±1 step drift. `requireActiveStaff` refuses
+disabled/blocked accounts and any token issued before `sessionsRevokedAt`
+(MFA reset / revoke / disable). MFA reset clears the pairing, revokes sessions,
+and is audit-logged. 30-minute inactivity sign-out is enforced by short access
+tokens plus the frontend timer.
+
+## Invitation emails (locked 2026-09-23)
+
+`STAFF_INVITATION` reuses the durable Resend outbox (lease/retry, staging
+recipient override). The job carries the single-use setup token so the worker
+can build `{STAFF_PORTAL_URL}/auth?setup=…`; the token is `$unset` the moment
+the email is SENT, and stale jobs (invite re-sent since) are dropped without
+retries. Email-enabled envs never return the token in the invite response;
+email-disabled envs (local dev) return it for manual setup. `POST
+/auth/invite/:id/resend` regenerates the token and re-queues. Audit:
+`invitation_emailed/sent/failed` on the staff doc.
+
+## Fulfillment queue and audit (locked 2026-09-23)
+
+Agents see paid unassigned orders plus their own; admins see all. List rows are
+masked (requestor first name + last initial, no contact/PII). Claim is an atomic
+`findOneAndUpdate {assignedTo: null, PAID}` — exactly one agent wins (409
+otherwise). Only the owner-agent or super-admin may open detail, add notes,
+reveal, or change status. Statuses: `PAID → IN_REVIEW → SUBMITTED` (terminal)
+plus `ON_HOLD` / `NEED_INFO` park-and-resume from `IN_REVIEW`, which require an
+internal note and show only a neutral support message on public tracking.
+Projection-loaded docs are mutated with atomic `$push`/`$set` (never `save()`),
+so audit history is never overwritten. Staff + order audit events merge in
+`GET /admin/activity`; `GET /admin/workload` reports active/completed per agent.
+
 ## Locked 2026-09-21: scope and boundaries
 
 - Scope: Phase 1 = public APIs first. Phase 2 = full staff suite (deferred). See `docs/TODO.md`.

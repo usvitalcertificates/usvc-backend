@@ -3,6 +3,9 @@ import { env } from "../config/env.js";
 import { ContactMessage } from "../models/contact-message.js";
 import { EmailOutbox } from "../models/email-outbox.js";
 import { Order } from "../models/order.js";
+import { StaffUser } from "../models/staff.js";
+import { buildStaffSetupUrl, renderStaffInvitationEmail } from "./staff-email.js";
+import { hashInviteToken } from "./staff-auth.js";
 import { renderContactCustomerReceipt, renderContactSupportEmail } from "./contact-email.js";
 import { renderPaymentConfirmationEmail } from "./payment-confirmation-email.js";
 
@@ -65,6 +68,26 @@ export async function processNextEmail(): Promise<boolean> {
       if (message.template === "CONTACT_SUPPORT_NOTIFICATION") {
         email = renderContactSupportEmail(contact);
         replyTo = contact.email;
+      } else if (message.template === "STAFF_INVITATION") {
+        const staff = await StaffUser.findById(message.staffUserId)
+          .select("+inviteTokenHash")
+          .lean();
+        // The job carries the exact token issued at invite time; if the invite
+        // was re-sent since, this job is stale — drop it quietly (no retries).
+        const jobToken = (message as { setupToken?: string }).setupToken;
+        const tokenCurrent =
+          !!staff &&
+          !!jobToken &&
+          hashInviteToken(jobToken) === (staff as { inviteTokenHash?: string }).inviteTokenHash;
+        if (!tokenCurrent) {
+          await EmailOutbox.deleteOne({ _id: message._id });
+          return true;
+        }
+        email = renderStaffInvitationEmail({
+          fullName: staff!.fullName || "",
+          setupUrl: buildStaffSetupUrl(env.STAFF_PORTAL_URL!, jobToken!),
+        });
+        replyTo = env.EMAIL_REPLY_TO!;
       } else {
         email = renderContactCustomerReceipt(contact);
         replyTo = env.EMAIL_REPLY_TO!;
@@ -94,7 +117,8 @@ export async function processNextEmail(): Promise<boolean> {
           providerMessageId: result.data?.id,
           sentAt,
         },
-        $unset: { leaseExpiresAt: 1, lastError: 1 },
+        // Single-use setup tokens must not linger once delivered.
+        $unset: { leaseExpiresAt: 1, lastError: 1, setupToken: 1 },
       },
     );
     await recordEmailAudit(message, "sent", sentAt, { providerMessageId: result.data?.id });
@@ -119,7 +143,12 @@ export async function processNextEmail(): Promise<boolean> {
 }
 
 async function recordEmailAudit(
-  message: { orderId?: unknown; contactMessageId?: unknown; template: string },
+  message: {
+    orderId?: unknown;
+    contactMessageId?: unknown;
+    staffUserId?: unknown;
+    template: string;
+  },
   outcome: "sent" | "failed",
   createdAt: Date,
   metadata: Record<string, unknown>,
@@ -131,6 +160,21 @@ async function recordEmailAudit(
         $push: {
           auditEvents: {
             action: outcome === "sent" ? "confirmation_email_sent" : "confirmation_email_failed",
+            metadata,
+            createdAt,
+          },
+        },
+      },
+    );
+    return;
+  }
+  if (message.staffUserId) {
+    await StaffUser.updateOne(
+      { _id: message.staffUserId },
+      {
+        $push: {
+          auditEvents: {
+            action: outcome === "sent" ? "invitation_email_sent" : "invitation_email_failed",
             metadata,
             createdAt,
           },

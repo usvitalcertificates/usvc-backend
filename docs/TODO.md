@@ -30,12 +30,14 @@ Scope locked 2026-09-21: Phase 1 = public APIs to Lovable parity. Phase 2 = full
 - [x] GA4 state tracking 2026-09-23: `state_code` (+ `certificate`) on server `purchase` via `AnalyticsPurchaseDelivery.stateCode`; `stateCode` added to the checkout summary projection
 - [ ] Proof: `npm run build && npm test` passes
 
-## Phase 2 (deferred)
+## Phase 2 (staff MVP — built 2026-09-23 on `feat/fulfillment-mvp`)
 
-- [ ] Auth: refresh/logout/invite/accept/password-setup, TOTP enroll/verify, `requireRole` (`requireAuth` + assigned-or-admin reveal/audit done 2026-09-23)
-- [ ] Fulfillment: queue/search, detail, notes POST, audit GET, and UI over the staff status PATCH API (SUBMITTED is the terminal status)
-- [ ] Admin: gov-fee CRUD + audit, sales/revenue aggregation
-- [ ] Attendance: routes only if needed (original was isolated preview-only)
+- [x] Auth: invite/accept/password-setup, TOTP enroll/verify/confirm, refresh/logout, lockout, `requireAdmin` + `requireActiveStaff` (session revoke) — done 2026-09-23, E2E vs scratch Atlas DB (invite → setup → enroll → verify → lockout/revoke paths)
+- [x] Fulfillment: masked queue/search (`GET /staff/orders`), atomic claim, release/reassign, owner-or-admin detail, notes POST, exception statuses (note-required) over `PATCH /orders/:id/status` (SUBMITTED terminal) — done 2026-09-23, E2E claim → note → IN_REVIEW → ON_HOLD → resume → SUBMITTED + tracking neutral
+- [x] Admin: staff roster, disable/revoke/MFA-reset, workload, combined activity feed — done 2026-09-23, E2E verified incl. session-revoke 401
+- [x] Invitation emails 2026-09-23: `STAFF_INVITATION` outbox template (`staff-email.ts` render + escaping tests), `STAFF_PORTAL_URL` env (required when `EMAIL_ENABLED=true`), invite queues email and omits token / returns token when email disabled (local dev), `POST /auth/invite/:id/resend` regenerates + drops stale pending jobs, worker redacts `setupToken` after SENT and skips stale jobs; audit `invitation_emailed/sent/failed`
+- [x] Queue filters: `certificate` (order-type) + `openOnly` (open vs closed views) — done 2026-09-23
+- [ ] Remaining: gov-fee CRUD, sales/revenue aggregation, attendance routes
 - [ ] Do NOT build custody/vault/second-charge
 
 ## Doc rule

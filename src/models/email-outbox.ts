@@ -9,10 +9,22 @@ const EmailOutboxSchema = new Schema(
     _id: { type: String, required: true },
     orderId: { type: Schema.Types.ObjectId, index: true },
     contactMessageId: { type: Schema.Types.ObjectId, index: true },
+    staffUserId: { type: Schema.Types.ObjectId, index: true },
+    /**
+     * Single-use staff setup token (plaintext). Present only on
+     * STAFF_INVITATION jobs; redacted ($unset) the moment the email is SENT.
+     * Tokens expire 48h after issue regardless.
+     */
+    setupToken: { type: String, select: false },
     recipient: { type: String, required: true },
     template: {
       type: String,
-      enum: ["PAYMENT_CONFIRMATION", "CONTACT_SUPPORT_NOTIFICATION", "CONTACT_CUSTOMER_RECEIPT"],
+      enum: [
+        "PAYMENT_CONFIRMATION",
+        "CONTACT_SUPPORT_NOTIFICATION",
+        "CONTACT_CUSTOMER_RECEIPT",
+        "STAFF_INVITATION",
+      ],
       required: true,
     },
     status: {

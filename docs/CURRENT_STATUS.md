@@ -1,6 +1,6 @@
 # Current backend status
 
-Last updated: 2026-09-23 (Node.js 24 LTS; AES-256-GCM confidentialData; plaintext SSN/card removed; reveal + audit routes; birth-form requirements; temporary California county block).
+Last updated: 2026-09-23 (Node.js 24 LTS; AES-256-GCM confidentialData; staff auth + fulfillment MVP; invitation emails via outbox; queue certificate/openOnly filters).
 
 ## Implemented
 
@@ -13,7 +13,7 @@ Last updated: 2026-09-23 (Node.js 24 LTS; AES-256-GCM confidentialData; plaintex
 - Public order numbers are globally sequential plate codes (`US<state>-<type>-<YYYYMMDD>-<DDLetterDDD>`, e.g. `USCA-BT-20260922-00A001`) from an atomic `counters.orderSeq`; duplicate-key conflicts retry with the next sequence. Tracking and all other consumers treat the number as an opaque string.
 - Payment-confirmation email branches on rush: shared "Your application will be reviewed." line, standard workflow paragraph normally, Rush-channel paragraph when rush was paid. All emails use the light logo via direct `usvc-logo-light.png` URL (135KB vs the 1MB dark logo).
 - `render.yaml` declares `SENSITIVE_ENCRYPTION_KEY` (secret, `sync: false`) and `SENSITIVE_KEY_ID=v1`; set a fresh key per Render environment (staging + production) via the dashboard — see `DEPLOYMENT.md`.
-- Public tracking returns only a customer-safe timeline: Payment Successful, Order Received, Order Processing, and Order Processed – Submitted to the Govt Agency (final step). Stripe webhook payment confirmation creates the first two milestones; authenticated staff can move paid orders forward one fulfillment step at a time through the staff status endpoint.
+- Public tracking returns only a customer-safe timeline: Payment Successful, Order Received, Order Processing, and Order Processed – Submitted to the Govt Agency (final step). Stripe webhook payment confirmation creates the first two milestones; authenticated staff can move paid orders forward one fulfillment step at a time through the staff status endpoint (`PAID → IN_REVIEW → SUBMITTED`, plus note-required `ON_HOLD` / `NEED_INFO` park-and-resume; exceptions show a neutral support message publicly).
 - Paid Stripe webhooks atomically queue one Resend confirmation per order in `email_outbox`. The background worker leases jobs, uses provider idempotency, retries temporary failures with exponential backoff, and records sanitized delivery audit events.
 - When production analytics is enabled, paid Stripe webhooks atomically queue one GA4 Purchase in `analytics_purchase_deliveries`. The worker sends only public order number, charged amount, USD, certificate type, state code, copies, and rush status; it retries safely and records sanitized order audit events. Browser tracking never emits Purchase.
 - All Resend HTML emails display the public USVC logo in a shared branded header. Inbox sender-avatar display remains controlled by recipient email clients and requires owner-managed BIMI and/or Apple Branded Mail verification.
@@ -28,9 +28,8 @@ Last updated: 2026-09-23 (Node.js 24 LTS; AES-256-GCM confidentialData; plaintex
 
 ## In progress / not yet exposed as routes
 
-- Refresh/logout, invitation acceptance, password setup, and TOTP MFA.
-- Fee, report, and attendance endpoints; a staff fulfillment UI remains to be built over the protected status endpoint.
-- Admin UI support and more restrictive public tracking projection.
+- Fee, report, and attendance endpoints.
+- Invitation email delivery via the Resend outbox (setup link is returned in the invite response until templates land).
 
 ## Sensitive-data boundary
 
