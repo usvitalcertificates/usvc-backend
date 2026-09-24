@@ -14,7 +14,7 @@ test("pricing is visible only to ADMIN and CS", () => {
   assert.equal(canSeePricing(""), false);
 });
 
-test("form correction without ownership is limited to ADMIN and CS", () => {
+test("form correction role gate is limited to ADMIN and CS (ownership enforced in route)", () => {
   assert.equal(canCorrectOrders("ADMIN"), true);
   assert.equal(canCorrectOrders("CS"), true);
   assert.equal(canCorrectOrders("FULFILLMENT"), false);
