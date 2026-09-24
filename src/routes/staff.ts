@@ -4,6 +4,8 @@ import mongoose from "mongoose";
 import { z } from "zod";
 import { requireActiveStaff, requireAuth, type AuthUser } from "../middleware/auth.js";
 import { ApiError } from "../middleware/errors.js";
+import { validateGeoSelection } from "../lib/order-validation.js";
+import { canCorrectOrders, canSeePricing } from "../lib/staff-roles.js";
 import { Order } from "../models/order.js";
 import { StaffUser } from "../models/staff.js";
 
@@ -283,8 +285,9 @@ staffRouter.post("/orders/:id/reassign", async (req, res, next) => {
 });
 
 /**
- * Full operational detail. Owner-agent or super-admin only. SSN/card stay
+ * Full operational detail. Owner-agent, CS, or ADMIN. SSN/card stay
  * masked (`*********`) — use POST /orders/:id/reveal for audited access.
+ * Pricing (`pricing` + `amountCents`) is returned only to ADMIN + CS.
  */
 staffRouter.get("/orders/:id", async (req, res, next) => {
   try {
@@ -293,13 +296,16 @@ staffRouter.get("/orders/:id", async (req, res, next) => {
     const order = await Order.findById(id, { confidentialData: 0 }).lean();
     if (!order) throw new ApiError(404, "Order not found");
     const owner = order.assignedTo ? String(order.assignedTo) : null;
-    if (user.role !== "ADMIN" && owner !== user.sub)
+    if (!canCorrectOrders(user.role) && owner !== user.sub)
       throw new ApiError(403, "Only the assigned agent or a super-admin may open this order.");
     const assignee = owner
       ? await StaffUser.findById(owner, { fullName: 1, email: 1 }).lean()
       : null;
+    const showPricing = canSeePricing(user.role);
+    const { pricing, amountCents, ...rest } = order as Record<string, unknown>;
     res.json({
-      ...order,
+      ...rest,
+      ...(showPricing ? { pricing, amountCents } : {}),
       _id: String(order._id),
       assignedTo: owner,
       assignedName: assignee?.fullName || (owner ? "Staff" : null),
@@ -311,7 +317,7 @@ staffRouter.get("/orders/:id", async (req, res, next) => {
   }
 });
 
-/** Internal notes. Never shown to the customer. */
+/** Internal notes. Owner, CS, or ADMIN. Never shown to the customer. */
 staffRouter.post("/orders/:id/notes", async (req, res, next) => {
   try {
     const id = z.string().min(1).parse(req.params.id);
@@ -320,7 +326,7 @@ staffRouter.post("/orders/:id/notes", async (req, res, next) => {
     const order = await Order.findById(id, { assignedTo: 1 }).lean();
     if (!order) throw new ApiError(404, "Order not found");
     const owner = order.assignedTo ? String(order.assignedTo) : null;
-    if (user.role !== "ADMIN" && owner !== user.sub)
+    if (!canCorrectOrders(user.role) && owner !== user.sub)
       throw new ApiError(403, "Only the assigned agent or a super-admin may add notes.");
     const occurredAt = new Date();
     // Atomic $push: the doc is loaded with a projection, so save() here
@@ -335,6 +341,153 @@ staffRouter.post("/orders/:id/notes", async (req, res, next) => {
       },
     );
     res.status(201).json({ ok: true });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/**
+ * CS correction (EDIT-only, no create/delete). ADMIN or CS may fix application
+ * form data without taking ownership — e.g. fulfillment parks an order as
+ * ON_HOLD/NEED_INFO, CS corrects the form here, then resumes it to IN_REVIEW.
+ * Closed (SUBMITTED) orders are read-only. Pricing/payment/status are never
+ * editable here; use the status endpoint for resume.
+ */
+const addressCorrection = z
+  .object({
+    firstName: z.string().trim().max(120).optional(),
+    lastName: z.string().trim().max(120).optional(),
+    line1: z.string().trim().max(200).optional(),
+    line2: z.string().trim().max(200).optional(),
+    city: z.string().trim().max(120).optional(),
+    state: z.string().trim().max(120).optional(),
+    postalCode: z.string().trim().max(20).optional(),
+    country: z.string().trim().max(120).optional(),
+  })
+  .strict();
+
+export const correctionSchema = z
+  .object({
+    applicant: z
+      .object({
+        relationship: z.string().trim().max(120).optional(),
+        relationshipOther: z.string().trim().max(120).optional(),
+        firstName: z.string().trim().max(120).optional(),
+        middleName: z.string().trim().max(120).optional(),
+        lastName: z.string().trim().max(120).optional(),
+        dateOfBirth: z.string().trim().max(20).optional(),
+        phone: z
+          .string()
+          .trim()
+          .regex(/^\+[1-9]\d{6,14}$/, "Phone must be E.164 format")
+          .optional(),
+        email: z.string().trim().email().max(200).optional(),
+      })
+      .strict()
+      .optional(),
+    subject: z.record(z.string(), z.string().max(500)).optional(),
+    family: z.record(z.string(), z.string().max(500)).optional(),
+    addresses: z
+      .object({
+        home: addressCorrection.optional(),
+        shipping: addressCorrection.optional(),
+        billing: addressCorrection.optional(),
+      })
+      .strict()
+      .optional(),
+    geo: z
+      .object({
+        county: z.string().trim().min(1).max(120),
+        city: z.string().trim().min(1).max(120),
+      })
+      .strict()
+      .optional(),
+    reason: z.string().trim().max(200).optional(),
+    reasonOther: z.string().trim().max(200).optional(),
+    note: z.string().trim().min(1).max(2000).optional(),
+  })
+  .strict()
+  .refine(
+    (v) =>
+      v.applicant !== undefined ||
+      v.subject !== undefined ||
+      v.family !== undefined ||
+      v.addresses !== undefined ||
+      v.geo !== undefined ||
+      v.reason !== undefined ||
+      v.reasonOther !== undefined,
+    { message: "Provide at least one field to correct." },
+  );
+
+staffRouter.patch("/orders/:id/correction", async (req, res, next) => {
+  try {
+    const id = z.string().min(1).parse(req.params.id);
+    const input = correctionSchema.parse(req.body);
+    const user = reqUser(req);
+    if (!canCorrectOrders(user.role))
+      throw new ApiError(403, "Only ADMIN or CS may edit order form data.");
+    const order = await Order.findById(id, { status: 1, stateCode: 1 }).lean();
+    if (!order) throw new ApiError(404, "Order not found");
+    if (order.status === "SUBMITTED" || order.status === "CANCELLED")
+      throw new ApiError(409, "Closed orders are read-only.");
+    if (input.geo && !validateGeoSelection(order.stateCode, input.geo.county, input.geo.city))
+      throw new ApiError(422, "County/city does not match the order state.");
+    const set: Record<string, unknown> = {};
+    const fields: string[] = [];
+    if (input.applicant) {
+      for (const [k, v] of Object.entries(input.applicant)) {
+        if (v !== undefined) {
+          set[`applicant.${k}`] = v;
+          fields.push(`applicant.${k}`);
+        }
+      }
+    }
+    if (input.subject !== undefined) {
+      set.subject = input.subject;
+      fields.push("subject");
+    }
+    if (input.family !== undefined) {
+      set.family = input.family;
+      fields.push("family");
+    }
+    if (input.addresses) {
+      for (const [addr, patch] of Object.entries(input.addresses)) {
+        if (!patch) continue;
+        for (const [k, v] of Object.entries(patch)) {
+          if (v !== undefined) {
+            set[`addresses.${addr}.${k}`] = v;
+            fields.push(`addresses.${addr}.${k}`);
+          }
+        }
+      }
+    }
+    if (input.geo) {
+      set["geo.county"] = input.geo.county;
+      set["geo.city"] = input.geo.city;
+      fields.push("geo.county", "geo.city");
+    }
+    if (input.reason !== undefined) {
+      set.reason = input.reason;
+      fields.push("reason");
+    }
+    if (input.reasonOther !== undefined) {
+      set.reasonOther = input.reasonOther;
+      fields.push("reasonOther");
+    }
+    if (fields.length === 0) throw new ApiError(422, "Provide at least one field to correct.");
+    const occurredAt = new Date();
+    const push: Record<string, unknown> = {
+      auditEvents: orderEvent(user.sub, "form_corrected", { fields }),
+    };
+    if (input.note) {
+      (push as { notes: unknown }).notes = {
+        authorId: user.sub,
+        body: input.note,
+        createdAt: occurredAt,
+      };
+    }
+    await Order.updateOne({ _id: id }, { $set: set, $push: push });
+    res.json({ ok: true, corrected: fields });
   } catch (e) {
     next(e);
   }

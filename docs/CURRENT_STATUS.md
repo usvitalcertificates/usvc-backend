@@ -1,6 +1,6 @@
 # Current backend status
 
-Last updated: 2026-09-24 (Node.js 24 LTS; AES-256-GCM confidentialData; staff auth + fulfillment MVP; email copy trim).
+Last updated: 2026-09-24 (Node.js 24 LTS; AES-256-GCM confidentialData; staff roles ADMIN/FULFILLMENT/CS; pricing gated to ADMIN+CS; CS correction flow).
 
 ## Implemented
 
@@ -30,6 +30,7 @@ Last updated: 2026-09-24 (Node.js 24 LTS; AES-256-GCM confidentialData; staff au
 
 - Fee, report, and attendance endpoints (Phase 3).
 - Invitation emails send via the Resend outbox when `EMAIL_ENABLED=true`; email-disabled envs return the setup token for manual setup. `STAFF_INVITATION` has no H1 personalization (setup-link + 48h steps only); `SUBMISSION_NOTIFICATION` subject is `Your order has been submitted — {publicNumber}` with no tracking link/footer and `vary by state to state` wording.
+- Staff roles are `ADMIN`, `FULFILLMENT`, and `CS` (legacy `STAFF` auto-migrates to `FULFILLMENT` with session revoke on deploy). Invites carry a role (default `FULFILLMENT`); ADMINs change roles via `PATCH /admin/staff/:id` (last-ADMIN guard). Order pricing is returned only to `ADMIN`/`CS`. CS corrects form data without ownership via `PATCH /staff/orders/:id/correction` (EDIT-only, audited `form_corrected`) and resumes `ON_HOLD`/`NEED_INFO` → `IN_REVIEW`.
 
 ## Sensitive-data boundary
 

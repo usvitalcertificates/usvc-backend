@@ -445,7 +445,10 @@ ordersRouter.patch("/:id/status", requireAuth, async (req, res, next) => {
     const actor = (req as typeof req & { user: AuthUser }).user;
     const order = await Order.findById(id);
     if (!order) throw new ApiError(404, "Order not found");
-    if (!canReveal(order, actor))
+    const isResume =
+      status === "IN_REVIEW" && (order.status === "ON_HOLD" || order.status === "NEED_INFO");
+    const csResume = actor.role === "CS" && isResume;
+    if (!csResume && !canReveal(order, actor))
       throw new ApiError(403, "Only the assigned agent or a super-admin may update this order.");
     if (order.paymentStatus !== "PAID") throw new ApiError(409, "A paid order is required.");
     if (!isAllowedStaffStatusTransition(order.status, status))

@@ -3,7 +3,9 @@ import jwt from "jsonwebtoken";
 import { env } from "../config/env.js";
 import { StaffUser } from "../models/staff.js";
 import { ApiError } from "./errors.js";
-export type AuthUser = { sub: string; email: string; role: "ADMIN" | "STAFF"; iat?: number };
+import type { StaffRole } from "../lib/staff-roles.js";
+export type { StaffRole };
+export type AuthUser = { sub: string; email: string; role: StaffRole; iat?: number };
 export const requireAuth = (req: Request, res: Response, next: NextFunction) => {
   try {
     const token = req.header("authorization")?.replace(/^Bearer /, "");

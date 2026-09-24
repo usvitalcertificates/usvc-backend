@@ -232,7 +232,11 @@ authRouter.post(
   async (req, res, next) => {
     try {
       const input = z
-        .object({ fullName: z.string().trim().min(1).max(120), email: z.string().email() })
+        .object({
+          fullName: z.string().trim().min(1).max(120),
+          email: z.string().email(),
+          role: z.enum(["ADMIN", "FULFILLMENT", "CS"]).default("FULFILLMENT"),
+        })
         .parse(req.body);
       const admin = (req as typeof req & { user: AuthUser }).user;
       if (await StaffUser.findOne({ email: input.email }))
@@ -243,11 +247,13 @@ authRouter.post(
         fullName: input.fullName,
         // Placeholder — replaced at setup. Argon2 of a random value so it never validates.
         passwordHash: await argon2.hash(newInviteToken().token),
-        role: "STAFF",
+        role: input.role,
         accountStatus: "pending",
         inviteTokenHash: tokenHash,
         inviteExpiresAt: new Date(Date.now() + INVITE_TTL_MS),
-        auditEvents: [staffEvent(admin.sub, "staff_invited", { email: input.email })],
+        auditEvents: [
+          staffEvent(admin.sub, "staff_invited", { email: input.email, role: input.role }),
+        ],
       });
       // Email-enabled environments send the setup link via the durable outbox
       // and never return the token. Local/dev keeps the token response so the
