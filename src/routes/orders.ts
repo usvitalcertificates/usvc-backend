@@ -417,14 +417,14 @@ ordersRouter.post("/:id/reveal", requireAuth, revealLimiter, async (req, res, ne
   }
 });
 
-/** Staff-only audit history. Same authorization as reveal; events never contain secrets. */
+/** Staff-only audit history. Owner, ADMIN, or CS; events never contain secrets. */
 ordersRouter.get("/:id/audit", requireAuth, async (req, res, next) => {
   try {
     const id = z.string().min(1).parse(req.params.id);
     const user = (req as typeof req & { user: AuthUser }).user;
     const order = await Order.findById(id, { auditEvents: 1, assignedTo: 1 });
     if (!order) throw new ApiError(404, "Order not found");
-    if (!canReveal(order, user))
+    if (user.role !== "CS" && !canReveal(order, user))
       throw new ApiError(403, "Only the assigned agent or a super-admin may view this audit.");
     res.json({ auditEvents: order.auditEvents ?? [] });
   } catch (e) {
