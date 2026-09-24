@@ -1,6 +1,5 @@
 import cors from "cors";
 import express from "express";
-import rateLimit from "express-rate-limit";
 import helmet from "helmet";
 import { randomUUID } from "node:crypto";
 import { env } from "./config/env.js";
@@ -24,17 +23,6 @@ app.use(cors({ origin: env.FRONTEND_URL, credentials: true }));
 app.get("/health", (req, res) => res.json({ status: "ok", service: "usvc-api" }));
 app.use("/webhooks", express.raw({ type: "application/json" }), webhookRouter);
 app.use(express.json({ limit: "100kb" }));
-app.use(
-  rateLimit({
-    windowMs: 15 * 60 * 1000,
-    limit: 100,
-    standardHeaders: true,
-    legacyHeaders: false,
-    // JSON body (not the default plain-text message) so API consumers can
-    // always parse error responses, including the staff portal proxy.
-    message: { message: "Too many requests. Please wait a few minutes and try again." },
-  }),
-);
 app.use("/auth", authRouter);
 app.use("/admin", adminRouter);
 app.use("/staff", staffRouter);

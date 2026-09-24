@@ -1,6 +1,6 @@
 # Current backend status
 
-Last updated: 2026-09-24 (Node.js 24 LTS; AES-256-GCM confidentialData; staff roles ADMIN/FULFILLMENT/CS; pricing gated to ADMIN+CS; CS correction flow with auditable handoff age).
+Last updated: 2026-09-24 (Node.js 24 LTS; AES-256-GCM confidentialData; staff roles ADMIN/FULFILLMENT/CS; pricing gated to ADMIN+CS; CS correction flow with auditable handoff age; no shared API request cap).
 
 ## Implemented
 
@@ -33,6 +33,7 @@ Last updated: 2026-09-24 (Node.js 24 LTS; AES-256-GCM confidentialData; staff ro
 - Staff roles are `ADMIN`, `FULFILLMENT`, and `CS` (legacy `STAFF` auto-migrates to `FULFILLMENT` with session revoke on deploy). Invites carry a role (default `FULFILLMENT`); ADMINs change roles via `PATCH /admin/staff/:id` (last-ADMIN guard). Order pricing is returned only to `ADMIN`/`CS`. CS claims an order, corrects the full form via `PATCH /staff/orders/:id/correction` (EDIT-only, audited `form_corrected`), and marks `TO_CS` → `GTG` (note optional).
 - The fulfillment queue lists all paid orders to every role (masked rows, gated actions). Sending `TO_CS` auto-releases assignment so CS can claim; CS must own an order to correct it or mark `GTG` (ADMIN bypasses both); marking `GTG` drops ownership back to the pool so fulfillment claims and continues via `IN_REVIEW`.
 - Queue responses derive `sentToCsAt` from the latest `fulfillment_status_updated` audit event with `TO_CS`; no raw audit events are returned.
+- The shared 100-requests-per-15-minutes API limiter has been removed so normal staff navigation is not throttled; sign-in, tracking, contact, and sensitive-data reveal limits remain active.
 
 ## Sensitive-data boundary
 

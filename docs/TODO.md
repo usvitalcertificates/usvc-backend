@@ -53,6 +53,7 @@ Scope: Phase 1 (public APIs) and Phase 2 (staff MVP) are built; PRs `feat/fulfil
 - [x] Strict ownership 2026-09-24: CS opens only owned orders like fulfillment (detail/notes/audit/status all owner-or-ADMIN; CS extras are inbox + edit + GTG authority + pricing); `csLane` bypass removed
 - [x] CS audit access 2026-09-24 (superseded by strict ownership above): `GET /orders/:id/audit` briefly allowed CS, then reverted to owner-or-ADMIN with the rest
 - [x] CS queue handoff age 2026-09-24: `GET /staff/orders` derives `sentToCsAt` from the latest `TO_CS` fulfillment-status audit event; later notes and audit activity cannot change queue priority age
+- [x] Shared API rate-limit removal 2026-09-24: removed the global 100-requests-per-15-minutes limiter that interrupted normal staff navigation; retained route-specific security limits and account lockout
 
 ## Phase 3 (remaining + proposed backlog)
 
