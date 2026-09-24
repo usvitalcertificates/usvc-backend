@@ -1,6 +1,6 @@
 # Current backend status
 
-Last updated: 2026-09-23 (Node.js 24 LTS; AES-256-GCM confidentialData; staff auth + fulfillment MVP; invitation emails via outbox; queue certificate/openOnly filters).
+Last updated: 2026-09-24 (Node.js 24 LTS; AES-256-GCM confidentialData; staff auth + fulfillment MVP; email copy trim).
 
 ## Implemented
 
@@ -29,7 +29,7 @@ Last updated: 2026-09-23 (Node.js 24 LTS; AES-256-GCM confidentialData; staff au
 ## In progress / not yet exposed as routes
 
 - Fee, report, and attendance endpoints (Phase 3).
-- Invitation emails send via the Resend outbox when `EMAIL_ENABLED=true`; email-disabled envs return the setup token for manual setup.
+- Invitation emails send via the Resend outbox when `EMAIL_ENABLED=true`; email-disabled envs return the setup token for manual setup. `STAFF_INVITATION` has no H1 personalization (setup-link + 48h steps only); `SUBMISSION_NOTIFICATION` subject is `Your order has been submitted — {publicNumber}` with no tracking link/footer and `vary by state to state` wording.
 
 ## Sensitive-data boundary
 

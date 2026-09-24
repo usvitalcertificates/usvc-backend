@@ -44,6 +44,7 @@ Scope: Phase 1 (public APIs) and Phase 2 (staff MVP) are built; PRs `feat/fulfil
 - [x] Submission email 2026-09-23: `SUBMISSION_NOTIFICATION` template (recall block + next steps + tracking link, escaped, no secrets) queued once on SUBMITTED via idempotent upsert; worker renders through existing pipeline with `submission_email_sent/failed` audit; E2E proven (one job, correct recipient, IN_REVIEW queues nothing)
 - [x] Invitation outbox fix 2026-09-23: `select:false` on `setupToken` starved the stale-check, silently deleting every invite — lease now selects it; guard extracted to tested `isInviteJobCurrent()`; scratch-DB proof (leased token present, job current)
 - [x] Invitation dispatch nesting fix 2026-09-23: branch lived after the contact lookup and threw before Resend — lifted top-level; decision extracted to tested `resolveStaffInvitation()` (stale/missing/null drop, current sends, never needs contact data)
+- [x] Email copy trim 2026-09-24: `STAFF_INVITATION` drops H1 personalization + authorized-staff-only line (render is `{setupUrl}`-only, `resolveStaffInvitation` no longer uses `fullName`); `SUBMISSION_NOTIFICATION` subject → `Your order has been submitted — {publicNumber}`, removes tracking-link line + gov-agency footer, `vary by agency` → `vary by state to state`
 
 ## Phase 3 (remaining + proposed backlog)
 

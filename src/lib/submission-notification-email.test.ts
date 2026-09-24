@@ -14,8 +14,7 @@ const order = {
 
 test("submission email recalls the order and explains next steps", () => {
   const email = renderSubmissionNotificationEmail(order, "https://www.usvitalcertificates.org/");
-  assert.match(email.subject, /submitted to the government agency/);
-  assert.match(email.subject, /USCA-BT-20260922-00A001/);
+  assert.equal(email.subject, "Your order has been submitted — USCA-BT-20260922-00A001");
   for (const needle of [
     "USCA-BT-20260922-00A001",
     "California Birth Certificate",
@@ -23,10 +22,14 @@ test("submission email recalls the order and explains next steps", () => {
     "Hi Jordan,",
     "September 23, 2026",
     "no action is needed",
-    "https://www.usvitalcertificates.org/track-order",
+    "vary by state to state",
   ]) {
     assert.ok(email.html.includes(needle), `html missing: ${needle}`);
     assert.ok(email.text.includes(needle), `text missing: ${needle}`);
+  }
+  for (const removed of ["track-order", "not a government agency", "vary by agency"]) {
+    assert.ok(!email.html.includes(removed), `html should not contain: ${removed}`);
+    assert.ok(!email.text.includes(removed), `text should not contain: ${removed}`);
   }
 });
 
