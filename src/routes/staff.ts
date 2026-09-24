@@ -6,7 +6,7 @@ import { requireActiveStaff, requireAuth, type AuthUser } from "../middleware/au
 import { ApiError } from "../middleware/errors.js";
 import { encryptSensitive } from "../lib/crypto.js";
 import { env } from "../config/env.js";
-import { queueAssignmentMatch } from "../lib/staff-queue.js";
+import { latestSentToCsAt, queueAssignmentMatch } from "../lib/staff-queue.js";
 import {
   isPlausibleSsn,
   validateCorrection,
@@ -46,6 +46,12 @@ interface QueueRow {
   rush: boolean;
   status: string;
   assignedTo?: unknown;
+  notes?: { body?: string }[];
+  auditEvents?: {
+    action?: string;
+    metadata?: { status?: string };
+    createdAt?: Date;
+  }[];
   createdAt?: Date;
 }
 
@@ -110,6 +116,10 @@ staffRouter.get("/orders", async (req, res, next) => {
       rush: 1,
       status: 1,
       assignedTo: 1,
+      // Latest internal note only (excerpt for queue context, never secrets).
+      notes: { $slice: -1 },
+      // Used only to derive a safe handoff timestamp below.
+      auditEvents: 1,
       createdAt: 1,
       updatedAt: 1,
     };
@@ -141,7 +151,7 @@ staffRouter.get("/orders", async (req, res, next) => {
         { $sort: { __priority: 1, updatedAt: -1 } },
         { $skip: skip },
         { $limit: limit },
-        { $project: projection },
+        { $project: { ...projection, notes: { $slice: ["$notes", -1] } } },
         { $unset: "__priority" },
       ]);
     } else {
@@ -188,6 +198,8 @@ staffRouter.get("/orders", async (req, res, next) => {
         status: row.status,
         assignedToMe: !!row.assignedTo && String(row.assignedTo) === user.sub,
         assignedName: row.assignedTo ? (ownerNames.get(String(row.assignedTo)) ?? "Staff") : null,
+        lastNote: row.notes?.at(-1)?.body?.slice(0, 140) ?? null,
+        sentToCsAt: latestSentToCsAt(row.auditEvents) ?? null,
         createdAt: row.createdAt,
       })),
       total,

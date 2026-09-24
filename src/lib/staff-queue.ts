@@ -12,3 +12,21 @@ export function queueAssignmentMatch(
   if (assigned === "unassigned") return { assignedTo: null };
   return {};
 }
+
+type QueueAuditEvent = {
+  action?: string;
+  metadata?: { status?: string };
+  createdAt?: Date | string;
+};
+
+/** Returns the latest explicit fulfillment-to-CS handoff timestamp. */
+export function latestSentToCsAt(events: QueueAuditEvent[] | undefined): Date | undefined {
+  let sentAt: Date | undefined;
+  for (const event of events ?? []) {
+    if (event.action !== "fulfillment_status_updated" || event.metadata?.status !== "TO_CS")
+      continue;
+    const timestamp = event.createdAt ? new Date(event.createdAt) : undefined;
+    if (timestamp && !Number.isNaN(timestamp.getTime())) sentAt = timestamp;
+  }
+  return sentAt;
+}
