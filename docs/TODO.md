@@ -45,7 +45,8 @@ Scope: Phase 1 (public APIs) and Phase 2 (staff MVP) are built; PRs `feat/fulfil
 - [x] Invitation outbox fix 2026-09-23: `select:false` on `setupToken` starved the stale-check, silently deleting every invite — lease now selects it; guard extracted to tested `isInviteJobCurrent()`; scratch-DB proof (leased token present, job current)
 - [x] Invitation dispatch nesting fix 2026-09-23: branch lived after the contact lookup and threw before Resend — lifted top-level; decision extracted to tested `resolveStaffInvitation()` (stale/missing/null drop, current sends, never needs contact data)
 - [x] Email copy trim 2026-09-24: `STAFF_INVITATION` drops H1 personalization + authorized-staff-only line (render is `{setupUrl}`-only, `resolveStaffInvitation` no longer uses `fullName`); `SUBMISSION_NOTIFICATION` subject → `Your order has been submitted — {publicNumber}`, removes tracking-link line + gov-agency footer, `vary by agency` → `vary by state to state`
-- [x] Staff roles 2026-09-24: `ADMIN/FULFILLMENT/CS` (`STAFF` migrated to `FULFILLMENT` on deploy with session revoke); invite accepts `role` (default `FULFILLMENT`); `PATCH /admin/staff/:id` changes role (last-ADMIN guard, self-block, session revoke); `GET /staff/orders/:id` strips `pricing/amountCents` for non `ADMIN/CS`; `PATCH /staff/orders/:id/correction` EDIT-only for `ADMIN/CS` without ownership + CS resume `ON_HOLD/NEED_INFO → IN_REVIEW`; `staff-roles.ts` helpers tested
+- [x] Staff roles 2026-09-24: `ADMIN/FULFILLMENT/CS` (`STAFF` migrated to `FULFILLMENT` on deploy with session revoke); invite accepts `role` (default `FULFILLMENT`); `PATCH /admin/staff/:id` changes role (last-ADMIN guard, self-block, session revoke); `GET /staff/orders/:id` strips `pricing/amountCents` for non `ADMIN/CS`; `PATCH /staff/orders/:id/correction` EDIT-only for `ADMIN/CS` without ownership + CS resume `TO_CS → IN_REVIEW`; `staff-roles.ts` helpers tested
+- [x] To-CS status 2026-09-24: `ON_HOLD`/`NEED_INFO` removed everywhere, replaced by single `TO_CS` park status (required internal note, `processingAt` timeline key, neutral public message, attention-first); Open Orders filter drops `SUBMITTED`; CS inbox + resume follow `TO_CS`
 
 ## Phase 3 (remaining + proposed backlog)
 
@@ -71,7 +72,7 @@ Proposed — awaiting owner decision:
 - [ ] Agency-payment confirmation per order (amount actually paid + agency reference) to close the manual gov-payment accounting loop
 - [ ] Read-only gov-fee reference for agents (static table before full CRUD)
 - [ ] Recovery codes for staff TOTP (plan promises them; only MFA-reset exists today)
-- [ ] `Need Customer Information` outreach procedure (customer sees only a neutral tracker message today — decide out-of-band process vs built notification before go-live)
+- [ ] `To CS` customer outreach procedure (customer sees only a neutral tracker message today — decide out-of-band process vs built notification before go-live)
 
 ## Doc rule
 

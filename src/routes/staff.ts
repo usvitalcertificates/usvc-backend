@@ -59,11 +59,11 @@ staffRouter.get("/orders", async (req, res, next) => {
     const filters = z
       .object({
         search: z.string().trim().max(120).optional(),
-        status: z.enum(["PAID", "IN_REVIEW", "ON_HOLD", "NEED_INFO", "SUBMITTED"]).optional(),
+        status: z.enum(["PAID", "IN_REVIEW", "TO_CS", "SUBMITTED"]).optional(),
         certificate: z.enum(["BIRTH", "DEATH", "MARRIAGE", "DIVORCE"]).optional(),
         assigned: z.enum(["mine", "unassigned", "all"]).default("all"),
         openOnly: staffFlag,
-        // Parked exceptions first, then rush, then oldest (My Work default).
+        // Parked-for-CS first, then rush, then oldest (My Work default).
         attentionFirst: staffFlag,
         rushOnly: staffFlag,
         page: z.coerce.number().int().min(1).default(1),
@@ -72,8 +72,7 @@ staffRouter.get("/orders", async (req, res, next) => {
     const user = reqUser(req);
     const match: Record<string, unknown> = { paymentStatus: "PAID" };
     if (filters.status) match.status = filters.status;
-    else if (filters.openOnly)
-      match.status = { $in: ["PAID", "IN_REVIEW", "ON_HOLD", "NEED_INFO"] };
+    else if (filters.openOnly) match.status = { $in: ["PAID", "IN_REVIEW", "TO_CS"] };
     if (filters.rushOnly) match.rush = true;
     if (filters.certificate) match.certificate = filters.certificate;
     if (user.role === "ADMIN") {
@@ -136,11 +135,7 @@ staffRouter.get("/orders", async (req, res, next) => {
         {
           $addFields: {
             __priority: {
-              $cond: [
-                { $in: ["$status", ["ON_HOLD", "NEED_INFO"]] },
-                0,
-                { $cond: ["$rush", 1, 2] },
-              ],
+              $cond: [{ $in: ["$status", ["TO_CS"]] }, 0, { $cond: ["$rush", 1, 2] }],
             },
           },
         },
@@ -348,8 +343,8 @@ staffRouter.post("/orders/:id/notes", async (req, res, next) => {
 
 /**
  * CS correction (EDIT-only, no create/delete). ADMIN or CS may fix application
- * form data without taking ownership — e.g. fulfillment parks an order as
- * ON_HOLD/NEED_INFO, CS corrects the form here, then resumes it to IN_REVIEW.
+ * form data without taking ownership — e.g. fulfillment sends an order To CS,
+ * CS corrects the form here, then resumes it to IN_REVIEW.
  * Closed (SUBMITTED) orders are read-only. Pricing/payment/status are never
  * editable here; use the status endpoint for resume.
  */

@@ -47,7 +47,7 @@ export function publicTrackingStatus(order: TrackableOrder) {
     occurredAt: timeline[step.key] ?? updatedAt,
   }));
 
-  if (order.status === "CANCELLED" || order.status === "ON_HOLD" || order.status === "NEED_INFO") {
+  if (order.status === "CANCELLED" || order.status === "TO_CS") {
     return {
       currentStatus: order.status === "CANCELLED" ? "Order Requires Support" : "Order Processing",
       timeline: entries,
@@ -70,8 +70,7 @@ export function publicTrackingStatus(order: TrackableOrder) {
 
 export const STAFF_STATUS_TIMELINE_KEYS = {
   IN_REVIEW: "processingAt",
-  ON_HOLD: "processingAt",
-  NEED_INFO: "processingAt",
+  TO_CS: "processingAt",
   SUBMITTED: "submittedToAgencyAt",
 } as const;
 
@@ -80,11 +79,10 @@ export const STAFF_STATUS_TRANSITIONS = {
   IN_REVIEW: "SUBMITTED",
 } as const;
 
-/** Operational exceptions: agents park an order with an internal note, then resume. */
+/** Parked for CS correction: fulfillment sends to CS with an internal note, CS resumes. */
 export const STAFF_EXCEPTION_TRANSITIONS = {
-  IN_REVIEW: ["ON_HOLD", "NEED_INFO"],
-  ON_HOLD: ["IN_REVIEW"],
-  NEED_INFO: ["IN_REVIEW"],
+  IN_REVIEW: ["TO_CS"],
+  TO_CS: ["IN_REVIEW"],
 } as const;
 
 export function isAllowedStaffStatusTransition(current: string, next: string): boolean {
@@ -95,13 +93,13 @@ export function isAllowedStaffStatusTransition(current: string, next: string): b
   return Array.isArray(exceptions) && (exceptions as readonly string[]).includes(next);
 }
 
-/** Exceptions never advance the customer timeline; they require an internal note. */
+/** Parked-for-CS never advances the customer timeline; it requires an internal note. */
 export function isExceptionStatus(status: string): boolean {
-  return status === "ON_HOLD" || status === "NEED_INFO";
+  return status === "TO_CS";
 }
 
 /**
- * Queue sort weight for attention-first ordering: parked exceptions first,
+ * Queue sort weight for attention-first ordering: parked-for-CS first,
  * then rush, then everything else (oldest wins within each band).
  * Mirrored in the staff queue aggregation pipeline — keep the two in sync.
  */

@@ -433,8 +433,8 @@ ordersRouter.get("/:id/audit", requireAuth, async (req, res, next) => {
 });
 
 const staffStatusSchema = z.object({
-  status: z.enum(["IN_REVIEW", "ON_HOLD", "NEED_INFO", "SUBMITTED"]),
-  // Required when parking an order in an exception state; kept internal only.
+  status: z.enum(["IN_REVIEW", "TO_CS", "SUBMITTED"]),
+  // Required when sending an order To CS; kept internal only.
   note: z.string().trim().min(1).max(2000).optional(),
 });
 /** Staff fulfillment status updates. Payment confirmation remains Stripe-controlled. */
@@ -445,8 +445,7 @@ ordersRouter.patch("/:id/status", requireAuth, async (req, res, next) => {
     const actor = (req as typeof req & { user: AuthUser }).user;
     const order = await Order.findById(id);
     if (!order) throw new ApiError(404, "Order not found");
-    const isResume =
-      status === "IN_REVIEW" && (order.status === "ON_HOLD" || order.status === "NEED_INFO");
+    const isResume = status === "IN_REVIEW" && order.status === "TO_CS";
     const csResume = actor.role === "CS" && isResume;
     if (!csResume && !canReveal(order, actor))
       throw new ApiError(403, "Only the assigned agent or a super-admin may update this order.");
@@ -454,7 +453,7 @@ ordersRouter.patch("/:id/status", requireAuth, async (req, res, next) => {
     if (!isAllowedStaffStatusTransition(order.status, status))
       throw new ApiError(422, "Order statuses must move forward one step at a time.");
     if (isExceptionStatus(status) && !note)
-      throw new ApiError(422, "An internal note is required for exception statuses.");
+      throw new ApiError(422, "An internal note is required for To CS.");
 
     const occurredAt = new Date();
     const timelineKey = STAFF_STATUS_TIMELINE_KEYS[status];

@@ -104,16 +104,7 @@ const OrderSchema = new Schema(
     currency: { type: String, default: "usd" },
     status: {
       type: String,
-      enum: [
-        "DRAFT",
-        "AWAITING_PAYMENT",
-        "PAID",
-        "IN_REVIEW",
-        "ON_HOLD",
-        "NEED_INFO",
-        "SUBMITTED",
-        "CANCELLED",
-      ],
+      enum: ["DRAFT", "AWAITING_PAYMENT", "PAID", "IN_REVIEW", "TO_CS", "SUBMITTED", "CANCELLED"],
       default: "AWAITING_PAYMENT",
       index: true,
     },
