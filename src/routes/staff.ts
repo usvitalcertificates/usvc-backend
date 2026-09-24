@@ -4,7 +4,13 @@ import mongoose from "mongoose";
 import { z } from "zod";
 import { requireActiveStaff, requireAuth, type AuthUser } from "../middleware/auth.js";
 import { ApiError } from "../middleware/errors.js";
-import { validateGeoSelection } from "../lib/order-validation.js";
+import { encryptSensitive } from "../lib/crypto.js";
+import { env } from "../config/env.js";
+import {
+  isPlausibleSsn,
+  validateCorrection,
+  type CorrectionCandidate,
+} from "../lib/order-validation.js";
 import { canCorrectOrders, canSeePricing } from "../lib/staff-roles.js";
 import { Order } from "../models/order.js";
 import { StaffUser } from "../models/staff.js";
@@ -342,11 +348,12 @@ staffRouter.post("/orders/:id/notes", async (req, res, next) => {
 });
 
 /**
- * CS correction (EDIT-only, no create/delete). ADMIN or CS may fix application
- * form data without taking ownership — e.g. fulfillment sends an order To CS,
- * CS corrects the form here, then resumes it to IN_REVIEW.
- * Closed (SUBMITTED) orders are read-only. Pricing/payment/status are never
- * editable here; use the status endpoint for resume.
+ * CS correction (EDIT-only, no create/delete). ADMIN or CS may fix the whole
+ * application form without taking ownership — e.g. fulfillment sends an order
+ * To CS, CS corrects it here, then marks GTG. Closed (SUBMITTED) orders are
+ * read-only. Copies/rush/certificate/state/pricing are never editable here
+ * (payment already taken). SSN/card replacements are encrypted into
+ * confidentialData and audited by field name only — values never logged.
  */
 const addressCorrection = z
   .object({
@@ -361,6 +368,14 @@ const addressCorrection = z
   })
   .strict();
 
+const paymentCardCorrection = z
+  .object({
+    number: z.string().trim().max(24),
+    expiry: z.string().trim().max(7),
+    securityCode: z.string().trim().max(5),
+  })
+  .strict();
+
 export const correctionSchema = z
   .object({
     applicant: z
@@ -371,12 +386,8 @@ export const correctionSchema = z
         middleName: z.string().trim().max(120).optional(),
         lastName: z.string().trim().max(120).optional(),
         dateOfBirth: z.string().trim().max(20).optional(),
-        phone: z
-          .string()
-          .trim()
-          .regex(/^\+[1-9]\d{6,14}$/, "Phone must be E.164 format")
-          .optional(),
-        email: z.string().trim().email().max(200).optional(),
+        phone: z.string().trim().max(40).optional(),
+        email: z.string().trim().max(200).optional(),
       })
       .strict()
       .optional(),
@@ -399,6 +410,12 @@ export const correctionSchema = z
       .optional(),
     reason: z.string().trim().max(200).optional(),
     reasonOther: z.string().trim().max(200).optional(),
+    deliveryMethod: z.string().trim().max(80).optional(),
+    destinationType: z.enum(["domestic", "international"]).optional(),
+    /** Blank/absent = keep stored ciphertext. Never returned, never logged. */
+    requestorSsn: z.string().trim().max(20).optional(),
+    /** All-or-nothing re-entry. Blank/absent = keep stored ciphertext. */
+    paymentCard: paymentCardCorrection.optional(),
     note: z.string().trim().min(1).max(2000).optional(),
   })
   .strict()
@@ -410,9 +427,28 @@ export const correctionSchema = z
       v.addresses !== undefined ||
       v.geo !== undefined ||
       v.reason !== undefined ||
-      v.reasonOther !== undefined,
+      v.reasonOther !== undefined ||
+      v.deliveryMethod !== undefined ||
+      v.destinationType !== undefined ||
+      (v.requestorSsn !== undefined && v.requestorSsn !== "") ||
+      v.paymentCard !== undefined,
     { message: "Provide at least one field to correct." },
   );
+
+/** Mongoose Maps come back as Map instances under lean() — normalize to objects. */
+function mapToRecord(value: unknown): Record<string, string> {
+  if (value instanceof Map) {
+    const out: Record<string, string> = {};
+    for (const [k, v] of value as Map<string, unknown>) out[k] = String(v ?? "");
+    return out;
+  }
+  if (value && typeof value === "object") {
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = String(v ?? "");
+    return out;
+  }
+  return {};
+}
 
 staffRouter.patch("/orders/:id/correction", async (req, res, next) => {
   try {
@@ -421,12 +457,85 @@ staffRouter.patch("/orders/:id/correction", async (req, res, next) => {
     const user = reqUser(req);
     if (!canCorrectOrders(user.role))
       throw new ApiError(403, "Only ADMIN or CS may edit order form data.");
-    const order = await Order.findById(id, { status: 1, stateCode: 1 }).lean();
+    const order = await Order.findById(id).lean();
     if (!order) throw new ApiError(404, "Order not found");
     if (order.status === "SUBMITTED" || order.status === "CANCELLED")
       throw new ApiError(409, "Closed orders are read-only.");
-    if (input.geo && !validateGeoSelection(order.stateCode, input.geo.county, input.geo.city))
-      throw new ApiError(422, "County/city does not match the order state.");
+    if (
+      order.certificate !== "BIRTH" &&
+      order.certificate !== "DEATH" &&
+      order.certificate !== "MARRIAGE" &&
+      order.certificate !== "DIVORCE"
+    )
+      throw new ApiError(422, "Order has an unknown certificate type.");
+
+    // Merge the patch over the stored order, then validate the whole form.
+    const storedApplicant = (order.applicant ?? {}) as Record<string, unknown>;
+    const str = (v: unknown): string => (typeof v === "string" ? v : String(v ?? ""));
+    const mergedApplicant = {
+      relationship: str(input.applicant?.relationship ?? storedApplicant.relationship),
+      relationshipOther: str(
+        input.applicant?.relationshipOther ?? storedApplicant.relationshipOther,
+      ),
+      firstName: str(input.applicant?.firstName ?? storedApplicant.firstName),
+      middleName: str(input.applicant?.middleName ?? storedApplicant.middleName),
+      lastName: str(input.applicant?.lastName ?? storedApplicant.lastName),
+      dateOfBirth: str(input.applicant?.dateOfBirth ?? storedApplicant.dateOfBirth),
+      phone: str(input.applicant?.phone ?? storedApplicant.phone),
+      email: str(input.applicant?.email ?? storedApplicant.email),
+    };
+    const mergedSubject = { ...mapToRecord(order.subject), ...(input.subject ?? {}) };
+    const mergedFamily = { ...mapToRecord(order.family), ...(input.family ?? {}) };
+    const storedAddresses = (order.addresses ?? {}) as Record<string, Record<string, unknown>>;
+    const addressBlock = (kind: string): Record<string, string> => {
+      const stored = storedAddresses[kind] ?? {};
+      const patch = input.addresses?.[kind as keyof typeof input.addresses] ?? {};
+      const out: Record<string, string> = {};
+      for (const key of [
+        "firstName",
+        "lastName",
+        "line1",
+        "line2",
+        "city",
+        "state",
+        "postalCode",
+        "country",
+      ]) {
+        out[key] = str(
+          (patch as Record<string, unknown>)[key] ?? (stored as Record<string, unknown>)[key],
+        );
+      }
+      return out;
+    };
+    const storedGeo = (order.geo ?? {}) as Record<string, unknown>;
+    const candidate: CorrectionCandidate = {
+      certificate: order.certificate,
+      stateCode: order.stateCode,
+      applicant: mergedApplicant,
+      subject: mergedSubject,
+      family: mergedFamily,
+      addresses: {
+        home: addressBlock("home"),
+        shipping: addressBlock("shipping"),
+        billing: addressBlock("billing"),
+      },
+      county: str(input.geo?.county ?? storedGeo.county),
+      city: str(input.geo?.city ?? storedGeo.city),
+      reason: str(input.reason ?? order.reason),
+      reasonOther: str(input.reasonOther ?? order.reasonOther),
+      deliveryMethod: str(input.deliveryMethod ?? order.deliveryMethod),
+      destinationType:
+        input.destinationType ??
+        (order.destinationType === "international" ? "international" : "domestic"),
+      requestorSsn: input.requestorSsn,
+      paymentCard: input.paymentCard,
+    };
+    const check = validateCorrection(candidate);
+    if (!check.ok)
+      return res
+        .status(422)
+        .json({ message: "Please correct the highlighted fields.", errors: check.errors });
+
     const set: Record<string, unknown> = {};
     const fields: string[] = [];
     if (input.applicant) {
@@ -468,6 +577,36 @@ staffRouter.patch("/orders/:id/correction", async (req, res, next) => {
     if (input.reasonOther !== undefined) {
       set.reasonOther = input.reasonOther;
       fields.push("reasonOther");
+    }
+    if (input.deliveryMethod !== undefined) {
+      set.deliveryMethod = input.deliveryMethod;
+      fields.push("deliveryMethod");
+    }
+    if (input.destinationType !== undefined) {
+      set.destinationType = input.destinationType;
+      fields.push("destinationType");
+    }
+    // Secrets: encrypt + store, audit field names only — values never logged.
+    if (input.requestorSsn !== undefined && input.requestorSsn !== "") {
+      if (!isPlausibleSsn(input.requestorSsn.trim()))
+        return res.status(422).json({
+          message: "Please correct the highlighted fields.",
+          errors: { requestorSsn: "Please enter a valid Social Security Number." },
+        });
+      set["confidentialData.ssnEnc"] = encryptSensitive(input.requestorSsn.trim());
+      set["confidentialData.keyId"] = env.SENSITIVE_KEY_ID;
+      set["confidentialData.encryptedAt"] = new Date();
+      fields.push("requestorSsn");
+    }
+    if (input.paymentCard !== undefined) {
+      set["confidentialData.cardNumberEnc"] = encryptSensitive(
+        input.paymentCard.number.replace(/[\s-]/g, ""),
+      );
+      set["confidentialData.cardExpiryEnc"] = encryptSensitive(input.paymentCard.expiry.trim());
+      set["confidentialData.cardCvcEnc"] = encryptSensitive(input.paymentCard.securityCode.trim());
+      set["confidentialData.keyId"] = env.SENSITIVE_KEY_ID;
+      set["confidentialData.encryptedAt"] = new Date();
+      fields.push("paymentCard");
     }
     if (fields.length === 0) throw new ApiError(422, "Provide at least one field to correct.");
     const occurredAt = new Date();

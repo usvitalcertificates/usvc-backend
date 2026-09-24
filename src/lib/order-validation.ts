@@ -353,6 +353,131 @@ export function validateOrderSubmission(input: CreateOrderInput): OrderValidatio
   return { ok: Object.keys(errors).length === 0, errors };
 }
 
+/** CS correction candidate: the stored order merged with the CS patch.
+ *  `requestorSsn` / `paymentCard` are present only when CS supplied new values
+ *  (blank means keep the stored ciphertext, which is never readable here). */
+export interface CorrectionCandidate {
+  certificate: "BIRTH" | "DEATH" | "MARRIAGE" | "DIVORCE";
+  stateCode: string;
+  applicant: {
+    relationship: string;
+    relationshipOther: string;
+    firstName: string;
+    middleName: string;
+    lastName: string;
+    dateOfBirth: string;
+    phone: string;
+    email: string;
+  };
+  subject: Record<string, string>;
+  family: Record<string, string>;
+  addresses: {
+    home: Record<string, string>;
+    shipping: Record<string, string>;
+    billing: Record<string, string>;
+  };
+  county: string;
+  city: string;
+  reason: string;
+  reasonOther: string;
+  deliveryMethod: string;
+  destinationType: string;
+  requestorSsn?: string;
+  paymentCard?: { number: string; expiry: string; securityCode: string };
+}
+
+/**
+ * Validates a CS-corrected order the same way as a new submission, minus
+ * payment/consent/signature checks (already paid + signed) and minus the
+ * birth-SSN requirement (stored ciphertext is unreadable; only a newly
+ * supplied SSN is plausibility-checked).
+ */
+export function validateCorrection(input: CorrectionCandidate): OrderValidationResult {
+  const errors: Record<string, string> = {};
+  const required = REQUIRED[input.certificate];
+
+  for (const key of required.subject) {
+    if (!(input.subject[key] ?? "").trim())
+      errors[`subject.${key}`] = "Please complete this required field.";
+  }
+  for (const key of required.family) {
+    if (!(input.family[key] ?? "").trim())
+      errors[`family.${key}`] = "Please complete this required field.";
+  }
+  if (input.certificate === "BIRTH") {
+    const status = (input.family["fatherStatus"] ?? "").trim().toLowerCase();
+    if (status !== "unknown" && status !== "not listed" && status !== "") {
+      for (const key of ["fatherFirstName", "fatherLastName"]) {
+        if (!(input.family[key] ?? "").trim())
+          errors[`family.${key}`] = "Please complete this required field.";
+      }
+    }
+    if (
+      (input.subject["sex"] ?? "").trim().toLowerCase() === "female" &&
+      !(input.subject["subjectMaidenLastName"] ?? "").trim()
+    ) {
+      errors["subject.subjectMaidenLastName"] =
+        "Maiden last name is required when the recorded gender is Female.";
+    }
+  }
+  const eventDate = input.subject["eventDate"] ?? "";
+  if (
+    (input.certificate === "DEATH" || input.certificate === "MARRIAGE" || eventDate) &&
+    !isValidDateString(eventDate)
+  ) {
+    errors["subject.eventDate"] = "Please enter a valid date.";
+  }
+  if (!input.applicant.firstName.trim())
+    errors["applicant.firstName"] = "Please complete this required field.";
+  if (!input.applicant.lastName.trim())
+    errors["applicant.lastName"] = "Please complete this required field.";
+  if (!input.applicant.relationship.trim())
+    errors["applicant.relationship"] = "Please complete this required field.";
+  if (input.applicant.relationship === "Other" && !input.applicant.relationshipOther.trim()) {
+    errors["applicant.relationshipOther"] = "Please describe your relationship.";
+  }
+  if (input.applicant.dateOfBirth && !isValidDateString(input.applicant.dateOfBirth)) {
+    errors["applicant.dateOfBirth"] = "Please enter a valid date of birth.";
+  }
+  if (!EMAIL_PATTERN.test(input.applicant.email.trim()))
+    errors["applicant.email"] = "Please enter a valid email address.";
+  if (!isE164Phone(input.applicant.phone ?? ""))
+    errors["applicant.phone"] = "Please enter a valid phone number with country code.";
+  if (!ZIP_PATTERN.test((input.addresses.shipping.postalCode ?? "").trim())) {
+    errors["addresses.shipping.postalCode"] = "Please enter a valid ZIP code.";
+  }
+  if (!input.addresses.shipping.line1.trim())
+    errors["addresses.shipping.line1"] = "Shipping address is required.";
+  if (!input.addresses.shipping.city.trim())
+    errors["addresses.shipping.city"] = "Shipping city is required.";
+  if (!validateGeoSelection(input.stateCode, input.county, input.city)) {
+    errors["county"] = "Please select a valid county and city for this state.";
+  }
+  if (isCountyTemporarilyUnavailable(input.stateCode, input.county)) {
+    errors["county"] = COUNTY_UNAVAILABLE_MESSAGE;
+  }
+  if (!input.reason.trim()) errors["reason"] = "Please complete this required field.";
+  if (input.reason === "Other" && !input.reasonOther.trim()) {
+    errors["reasonOther"] = "Please describe your reason.";
+  }
+  if (input.requestorSsn !== undefined && input.requestorSsn.trim() !== "") {
+    if (!isPlausibleSsn(input.requestorSsn.trim()))
+      errors["requestorSsn"] = "Please enter a valid Social Security Number.";
+  }
+  if (input.paymentCard !== undefined) {
+    if (!isAcceptedCardNumber(input.paymentCard.number)) {
+      errors["paymentCard.number"] = "Please enter a valid Visa or Mastercard number.";
+    }
+    if (!isAcceptedCardExpiry(input.paymentCard.expiry)) {
+      errors["paymentCard.expiry"] = "Please enter a valid future expiry date (MM/YY).";
+    }
+    if (!/^\d{3}$/.test(input.paymentCard.securityCode.trim())) {
+      errors["paymentCard.securityCode"] = "Please enter the 3-digit code on the back of the card.";
+    }
+  }
+  return { ok: Object.keys(errors).length === 0, errors };
+}
+
 export function pricingBreakdown(copies: number, rush: boolean, _international: boolean) {
   const serviceCents = 12500 * copies;
   const rushCents = rush ? 3000 : 0;
