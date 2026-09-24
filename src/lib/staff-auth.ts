@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import * as OTPAuth from "otpauth";
 import { env } from "../config/env.js";
 import { decryptSensitive, encryptSensitive } from "./crypto.js";
+import type { StaffRole } from "./staff-roles.js";
 
 /** Invitation tokens live 48h. Login lockout: 5 failures -> 15min lock. */
 export const INVITE_TTL_MS = 48 * 60 * 60 * 1000;
@@ -90,7 +91,7 @@ export function verifyMfaToken(token: string): string {
 export function signStaffTokens(user: {
   _id: { toHexString(): string };
   email: string;
-  role: "ADMIN" | "STAFF";
+  role: StaffRole;
 }): { accessToken: string; refreshToken: string } {
   return {
     accessToken: jwt.sign(

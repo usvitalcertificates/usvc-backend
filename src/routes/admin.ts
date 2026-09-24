@@ -79,6 +79,7 @@ adminRouter.patch("/staff/:id", async (req, res, next) => {
       .object({
         fullName: z.string().trim().min(1).max(120).optional(),
         accountStatus: z.enum(["active", "disabled"]).optional(),
+        role: z.enum(["ADMIN", "FULFILLMENT", "CS"]).optional(),
       })
       .parse(req.body);
     const admin = (req as typeof req & { user: AuthUser }).user;
@@ -92,6 +93,20 @@ adminRouter.patch("/staff/:id", async (req, res, next) => {
         member.sessionsRevokedAt = new Date();
         member.refreshTokenHash = undefined;
       }
+    }
+    if (input.role !== undefined && input.role !== member.role) {
+      if (member.role === "ADMIN" && input.role !== "ADMIN") {
+        const remainingAdmins = await StaffUser.countDocuments({
+          role: "ADMIN",
+          accountStatus: "active",
+          _id: { $ne: member._id },
+        });
+        if (remainingAdmins === 0)
+          throw new ApiError(400, "You cannot demote the last active ADMIN.");
+      }
+      member.role = input.role;
+      member.sessionsRevokedAt = new Date();
+      member.refreshTokenHash = undefined;
     }
     member.auditEvents ??= [];
     member.auditEvents.push(staffEvent(admin.sub, "staff_updated", { ...input }));

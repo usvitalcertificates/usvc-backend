@@ -47,7 +47,7 @@ export function publicTrackingStatus(order: TrackableOrder) {
     occurredAt: timeline[step.key] ?? updatedAt,
   }));
 
-  if (order.status === "CANCELLED" || order.status === "ON_HOLD" || order.status === "NEED_INFO") {
+  if (order.status === "CANCELLED" || isParkedStatus(order.status)) {
     return {
       currentStatus: order.status === "CANCELLED" ? "Order Requires Support" : "Order Processing",
       timeline: entries,
@@ -70,8 +70,8 @@ export function publicTrackingStatus(order: TrackableOrder) {
 
 export const STAFF_STATUS_TIMELINE_KEYS = {
   IN_REVIEW: "processingAt",
-  ON_HOLD: "processingAt",
-  NEED_INFO: "processingAt",
+  TO_CS: "processingAt",
+  GTG: "processingAt",
   SUBMITTED: "submittedToAgencyAt",
 } as const;
 
@@ -80,33 +80,41 @@ export const STAFF_STATUS_TRANSITIONS = {
   IN_REVIEW: "SUBMITTED",
 } as const;
 
-/** Operational exceptions: agents park an order with an internal note, then resume. */
-export const STAFF_EXCEPTION_TRANSITIONS = {
-  IN_REVIEW: ["ON_HOLD", "NEED_INFO"],
-  ON_HOLD: ["IN_REVIEW"],
-  NEED_INFO: ["IN_REVIEW"],
+/**
+ * CS-lane transitions. Fulfillment sends a broken form To CS (note required);
+ * only CS/ADMIN may mark it GTG; fulfillment then resumes via IN_REVIEW.
+ * TO_CS → IN_REVIEW and GTG → SUBMITTED are intentionally absent.
+ */
+export const STAFF_PARK_TRANSITIONS = {
+  IN_REVIEW: ["TO_CS"],
+  TO_CS: ["GTG"],
+  GTG: ["IN_REVIEW"],
 } as const;
 
 export function isAllowedStaffStatusTransition(current: string, next: string): boolean {
   if (STAFF_STATUS_TRANSITIONS[current as keyof typeof STAFF_STATUS_TRANSITIONS] === next)
     return true;
-  const exceptions =
-    STAFF_EXCEPTION_TRANSITIONS[current as keyof typeof STAFF_EXCEPTION_TRANSITIONS];
-  return Array.isArray(exceptions) && (exceptions as readonly string[]).includes(next);
+  const parked = STAFF_PARK_TRANSITIONS[current as keyof typeof STAFF_PARK_TRANSITIONS];
+  return Array.isArray(parked) && (parked as readonly string[]).includes(next);
 }
 
-/** Exceptions never advance the customer timeline; they require an internal note. */
+/** Sending To CS never advances the customer timeline and requires an internal note. */
 export function isExceptionStatus(status: string): boolean {
-  return status === "ON_HOLD" || status === "NEED_INFO";
+  return status === "TO_CS";
+}
+
+/** Internal parked states (never leak detail to public tracking). */
+export function isParkedStatus(status: string): boolean {
+  return status === "TO_CS" || status === "GTG";
 }
 
 /**
- * Queue sort weight for attention-first ordering: parked exceptions first,
+ * Queue sort weight for attention-first ordering: parked-for-CS first,
  * then rush, then everything else (oldest wins within each band).
  * Mirrored in the staff queue aggregation pipeline — keep the two in sync.
  */
 export function attentionPriority(status: string, rush: boolean): number {
-  if (isExceptionStatus(status)) return 0;
+  if (isParkedStatus(status)) return 0;
   if (rush) return 1;
   return 2;
 }

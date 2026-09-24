@@ -44,6 +44,15 @@ Scope: Phase 1 (public APIs) and Phase 2 (staff MVP) are built; PRs `feat/fulfil
 - [x] Submission email 2026-09-23: `SUBMISSION_NOTIFICATION` template (recall block + next steps + tracking link, escaped, no secrets) queued once on SUBMITTED via idempotent upsert; worker renders through existing pipeline with `submission_email_sent/failed` audit; E2E proven (one job, correct recipient, IN_REVIEW queues nothing)
 - [x] Invitation outbox fix 2026-09-23: `select:false` on `setupToken` starved the stale-check, silently deleting every invite — lease now selects it; guard extracted to tested `isInviteJobCurrent()`; scratch-DB proof (leased token present, job current)
 - [x] Invitation dispatch nesting fix 2026-09-23: branch lived after the contact lookup and threw before Resend — lifted top-level; decision extracted to tested `resolveStaffInvitation()` (stale/missing/null drop, current sends, never needs contact data)
+- [x] Email copy trim 2026-09-24: `STAFF_INVITATION` drops H1 personalization + authorized-staff-only line (render is `{setupUrl}`-only, `resolveStaffInvitation` no longer uses `fullName`); `SUBMISSION_NOTIFICATION` subject → `Your order has been submitted — {publicNumber}`, removes tracking-link line + gov-agency footer, `vary by agency` → `vary by state to state`
+- [x] Staff roles 2026-09-24: `ADMIN/FULFILLMENT/CS` (`STAFF` migrated to `FULFILLMENT` on deploy with session revoke); invite accepts `role` (default `FULFILLMENT`); `PATCH /admin/staff/:id` changes role (last-ADMIN guard, self-block, session revoke); `GET /staff/orders/:id` strips `pricing/amountCents` for non `ADMIN/CS`; `PATCH /staff/orders/:id/correction` EDIT-only for CS-owner or ADMIN + CS lane `TO_CS → GTG → IN_REVIEW`; `staff-roles.ts` helpers tested
+- [x] To-CS status 2026-09-24: `ON_HOLD`/`NEED_INFO` removed everywhere, replaced by single `TO_CS` park status (required internal note, `processingAt` timeline key, neutral public message, attention-first); Open Orders filter drops `SUBMITTED`; CS inbox + resume follow `TO_CS`
+- [x] GTG status 2026-09-24: `TO_CS → GTG` (CS/ADMIN only, note optional) → `GTG → IN_REVIEW` (owner/ADMIN/CS); nothing leaves `TO_CS` except via `GTG`, `GTG` never submits directly; parked states share neutral tracking + top attention priority; fulfillment sees red `TO_CS` blocker banner, green `GTG` ready banner
+- [x] Full-form CS correction 2026-09-24: `PATCH /staff/orders/:id/correction` accepts the whole form (applicant/subject/family/addresses/geo/reason/delivery + SSN/card re-entry); merged values validated via `validateCorrection()` with 422 `{message, errors}` for inline UI errors; SSN/card encrypted + audited by name only; copies/rush/cert/state/pricing locked
+- [x] Ownership loop 2026-09-24: queue lists all paid orders to every role (masked rows, gated actions); `TO_CS` auto-releases for CS to claim; CS must own to edit/Mark GTG (ADMIN bypasses); `GTG` drops ownership back to the pool for fulfillment to claim and continue
+- [x] Strict ownership 2026-09-24: CS opens only owned orders like fulfillment (detail/notes/audit/status all owner-or-ADMIN; CS extras are inbox + edit + GTG authority + pricing); `csLane` bypass removed
+- [x] CS audit access 2026-09-24 (superseded by strict ownership above): `GET /orders/:id/audit` briefly allowed CS, then reverted to owner-or-ADMIN with the rest
+- [x] CS queue handoff age 2026-09-24: `GET /staff/orders` derives `sentToCsAt` from the latest `TO_CS` fulfillment-status audit event; later notes and audit activity cannot change queue priority age
 
 ## Phase 3 (remaining + proposed backlog)
 
@@ -69,7 +78,7 @@ Proposed — awaiting owner decision:
 - [ ] Agency-payment confirmation per order (amount actually paid + agency reference) to close the manual gov-payment accounting loop
 - [ ] Read-only gov-fee reference for agents (static table before full CRUD)
 - [ ] Recovery codes for staff TOTP (plan promises them; only MFA-reset exists today)
-- [ ] `Need Customer Information` outreach procedure (customer sees only a neutral tracker message today — decide out-of-band process vs built notification before go-live)
+- [ ] `To CS` customer outreach procedure (customer sees only a neutral tracker message today — decide out-of-band process vs built notification before go-live)
 
 ## Doc rule
 

@@ -417,7 +417,7 @@ ordersRouter.post("/:id/reveal", requireAuth, revealLimiter, async (req, res, ne
   }
 });
 
-/** Staff-only audit history. Same authorization as reveal; events never contain secrets. */
+/** Staff-only audit history. Owner-agent or ADMIN only; events never contain secrets. */
 ordersRouter.get("/:id/audit", requireAuth, async (req, res, next) => {
   try {
     const id = z.string().min(1).parse(req.params.id);
@@ -433,8 +433,8 @@ ordersRouter.get("/:id/audit", requireAuth, async (req, res, next) => {
 });
 
 const staffStatusSchema = z.object({
-  status: z.enum(["IN_REVIEW", "ON_HOLD", "NEED_INFO", "SUBMITTED"]),
-  // Required when parking an order in an exception state; kept internal only.
+  status: z.enum(["IN_REVIEW", "TO_CS", "GTG", "SUBMITTED"]),
+  // Required when sending an order To CS; kept internal only. Optional for GTG.
   note: z.string().trim().min(1).max(2000).optional(),
 });
 /** Staff fulfillment status updates. Payment confirmation remains Stripe-controlled. */
@@ -445,17 +445,34 @@ ordersRouter.patch("/:id/status", requireAuth, async (req, res, next) => {
     const actor = (req as typeof req & { user: AuthUser }).user;
     const order = await Order.findById(id);
     if (!order) throw new ApiError(404, "Order not found");
+    // CS lane: only CS/ADMIN may mark GTG, and CS must own the order (claim
+    // first). Nothing leaves TO_CS except via GTG — nobody resumes or submits
+    // from TO_CS, including the owner. GTG → IN_REVIEW is owner-or-ADMIN.
+    const toGtg = status === "GTG";
+    if (toGtg && actor.role !== "CS" && actor.role !== "ADMIN")
+      throw new ApiError(403, "Only CS or ADMIN may mark an order GTG.");
+    if (
+      toGtg &&
+      actor.role === "CS" &&
+      (!order.assignedTo || String(order.assignedTo) !== actor.sub)
+    )
+      throw new ApiError(403, "Take ownership of this order before marking it GTG.");
     if (!canReveal(order, actor))
       throw new ApiError(403, "Only the assigned agent or a super-admin may update this order.");
     if (order.paymentStatus !== "PAID") throw new ApiError(409, "A paid order is required.");
     if (!isAllowedStaffStatusTransition(order.status, status))
       throw new ApiError(422, "Order statuses must move forward one step at a time.");
     if (isExceptionStatus(status) && !note)
-      throw new ApiError(422, "An internal note is required for exception statuses.");
+      throw new ApiError(422, "An internal note is required for To CS.");
 
     const occurredAt = new Date();
     const timelineKey = STAFF_STATUS_TIMELINE_KEYS[status];
     order.status = status;
+    // Ownership handoffs: sending To CS releases the order for CS to claim;
+    // marking GTG releases it back for fulfillment to claim and continue.
+    const releasedFrom =
+      (status === "TO_CS" || toGtg) && order.assignedTo ? String(order.assignedTo) : null;
+    if (releasedFrom) order.assignedTo = null;
     order.customerTimeline ??= {};
     order.customerTimeline[timelineKey] = occurredAt;
     order.notes ??= [];
@@ -466,7 +483,7 @@ ordersRouter.patch("/:id/status", requireAuth, async (req, res, next) => {
     order.auditEvents.push({
       actorId: actor.sub,
       action: "fulfillment_status_updated",
-      metadata: { status },
+      metadata: releasedFrom ? { status, releasedFrom } : { status },
       createdAt: occurredAt,
     });
     await order.save();

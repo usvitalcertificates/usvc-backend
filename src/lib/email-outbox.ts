@@ -88,7 +88,7 @@ export async function processNextEmail(): Promise<boolean> {
       const staff = await StaffUser.findById(message.staffUserId).select("+inviteTokenHash").lean();
       const jobToken = (message as { setupToken?: string }).setupToken;
       const resolved = resolveStaffInvitation(
-        staff as { fullName?: string; inviteTokenHash?: string } | null,
+        staff as { inviteTokenHash?: string } | null,
         jobToken,
         env.STAFF_PORTAL_URL!,
       );

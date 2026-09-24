@@ -4,6 +4,7 @@ import {
   attentionPriority,
   isAllowedStaffStatusTransition,
   isExceptionStatus,
+  isParkedStatus,
   publicTrackingStatus,
 } from "./customer-tracking.js";
 
@@ -44,31 +45,45 @@ test("allows staff to move a paid order forward but never to alter payment statu
   assert.equal(isAllowedStaffStatusTransition("PAID", "SUBMITTED"), false);
 });
 
-test("allows exception parking with a note and resume, never skipping ahead", () => {
-  assert.equal(isAllowedStaffStatusTransition("IN_REVIEW", "ON_HOLD"), true);
-  assert.equal(isAllowedStaffStatusTransition("IN_REVIEW", "NEED_INFO"), true);
-  assert.equal(isAllowedStaffStatusTransition("ON_HOLD", "IN_REVIEW"), true);
-  assert.equal(isAllowedStaffStatusTransition("NEED_INFO", "IN_REVIEW"), true);
-  assert.equal(isAllowedStaffStatusTransition("PAID", "ON_HOLD"), false);
-  assert.equal(isAllowedStaffStatusTransition("ON_HOLD", "SUBMITTED"), false);
-  assert.equal(isExceptionStatus("ON_HOLD"), true);
+test("allows sending To CS with a note, GTG, and resume — never skipping ahead", () => {
+  assert.equal(isAllowedStaffStatusTransition("IN_REVIEW", "TO_CS"), true);
+  assert.equal(isAllowedStaffStatusTransition("TO_CS", "GTG"), true);
+  assert.equal(isAllowedStaffStatusTransition("GTG", "IN_REVIEW"), true);
+  // Nothing leaves TO_CS except via GTG; GTG never submits directly.
+  assert.equal(isAllowedStaffStatusTransition("TO_CS", "IN_REVIEW"), false);
+  assert.equal(isAllowedStaffStatusTransition("TO_CS", "SUBMITTED"), false);
+  assert.equal(isAllowedStaffStatusTransition("GTG", "SUBMITTED"), false);
+  assert.equal(isAllowedStaffStatusTransition("PAID", "TO_CS"), false);
+  assert.equal(isAllowedStaffStatusTransition("PAID", "GTG"), false);
+  // Only sending To CS requires a note; GTG is completion without one.
+  assert.equal(isExceptionStatus("TO_CS"), true);
+  assert.equal(isExceptionStatus("GTG"), false);
   assert.equal(isExceptionStatus("SUBMITTED"), false);
+  assert.equal(isExceptionStatus("ON_HOLD"), false);
+  // Both park states stay internal.
+  assert.equal(isParkedStatus("TO_CS"), true);
+  assert.equal(isParkedStatus("GTG"), true);
+  assert.equal(isParkedStatus("IN_REVIEW"), false);
+  assert.equal(isParkedStatus("SUBMITTED"), false);
 });
 
-test("shows a neutral support message for exception statuses", () => {
-  const result = publicTrackingStatus({
-    paymentStatus: "PAID",
-    status: "ON_HOLD",
-    updatedAt: new Date("2026-09-22T12:00:00.000Z"),
-    customerTimeline: {},
-  });
-  assert.equal(result.currentStatus, "Order Processing");
-  assert.match(result.notice ?? "", /support/);
+test("shows a neutral support message for To CS and GTG", () => {
+  for (const status of ["TO_CS", "GTG"]) {
+    const result = publicTrackingStatus({
+      paymentStatus: "PAID",
+      status,
+      updatedAt: new Date("2026-09-22T12:00:00.000Z"),
+      customerTimeline: {},
+    });
+    assert.equal(result.currentStatus, "Order Processing");
+    assert.match(result.notice ?? "", /support/);
+  }
 });
 
-test("ranks exceptions first, then rush, then everything else", () => {
-  assert.equal(attentionPriority("ON_HOLD", false), 0);
-  assert.equal(attentionPriority("NEED_INFO", true), 0);
+test("ranks parked orders first, then rush, then everything else", () => {
+  assert.equal(attentionPriority("TO_CS", false), 0);
+  assert.equal(attentionPriority("GTG", false), 0);
+  assert.equal(attentionPriority("GTG", true), 0);
   assert.equal(attentionPriority("PAID", true), 1);
   assert.equal(attentionPriority("IN_REVIEW", true), 1);
   assert.equal(attentionPriority("PAID", false), 2);

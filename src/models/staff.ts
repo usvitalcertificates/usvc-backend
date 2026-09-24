@@ -9,7 +9,7 @@ const StaffUserSchema = new Schema(
     email: { type: String, required: true, unique: true, index: true },
     fullName: { type: String, default: "" },
     passwordHash: { type: String, required: true },
-    role: { type: String, enum: ["ADMIN", "STAFF"], required: true },
+    role: { type: String, enum: ["ADMIN", "FULFILLMENT", "CS"], required: true },
     accountStatus: {
       type: String,
       enum: ["pending", "active", "disabled", "blocked"],
