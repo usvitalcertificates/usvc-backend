@@ -6,6 +6,7 @@ import { requireActiveStaff, requireAuth, type AuthUser } from "../middleware/au
 import { ApiError } from "../middleware/errors.js";
 import { encryptSensitive } from "../lib/crypto.js";
 import { env } from "../config/env.js";
+import { queueAssignmentMatch } from "../lib/staff-queue.js";
 import {
   isPlausibleSsn,
   validateCorrection,
@@ -56,9 +57,10 @@ const orderEvent = (actorId: string, action: string, metadata?: Record<string, u
 });
 
 /**
- * Fulfillment queue. Agents see paid unassigned orders plus their own work;
- * super-admins see everything. List rows are masked: names are truncated to
- * first + last initial and contact/PII fields are excluded entirely.
+ * Fulfillment queue. Every role sees all paid orders (CS corrects across
+ * owners, fulfillment sees who claimed what); rows stay masked for non-owners
+ * and every action stays gated. The `assigned` filter narrows to mine or
+ * unassigned. Contact/PII fields are excluded entirely.
  */
 staffRouter.get("/orders", async (req, res, next) => {
   try {
@@ -81,16 +83,7 @@ staffRouter.get("/orders", async (req, res, next) => {
     else if (filters.openOnly) match.status = { $in: ["PAID", "IN_REVIEW", "TO_CS", "GTG"] };
     if (filters.rushOnly) match.rush = true;
     if (filters.certificate) match.certificate = filters.certificate;
-    if (user.role === "ADMIN") {
-      if (filters.assigned === "mine") match.assignedTo = user.sub;
-      else if (filters.assigned === "unassigned") match.assignedTo = null;
-    } else if (filters.assigned === "mine") {
-      match.assignedTo = user.sub;
-    } else if (filters.assigned === "unassigned") {
-      match.assignedTo = null;
-    } else {
-      match.$or = [{ assignedTo: null }, { assignedTo: user.sub }];
-    }
+    Object.assign(match, queueAssignmentMatch(filters.assigned, user.sub));
     if (filters.search) {
       const term = filters.search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       match.$and = (match.$and as unknown[] | undefined) ?? [];
@@ -348,12 +341,12 @@ staffRouter.post("/orders/:id/notes", async (req, res, next) => {
 });
 
 /**
- * CS correction (EDIT-only, no create/delete). ADMIN or CS may fix the whole
- * application form without taking ownership — e.g. fulfillment sends an order
- * To CS, CS corrects it here, then marks GTG. Closed (SUBMITTED) orders are
- * read-only. Copies/rush/certificate/state/pricing are never editable here
- * (payment already taken). SSN/card replacements are encrypted into
- * confidentialData and audited by field name only — values never logged.
+ * CS correction (EDIT-only, no create/delete). CS claims the order first,
+ * then fixes the whole application form here (ADMIN may edit without owning).
+ * Closed (SUBMITTED) orders are read-only. Copies/rush/certificate/state/pricing
+ * are never editable here (payment already taken). SSN/card replacements are
+ * encrypted into confidentialData and audited by field name only — values
+ * never logged.
  */
 const addressCorrection = z
   .object({
@@ -459,6 +452,8 @@ staffRouter.patch("/orders/:id/correction", async (req, res, next) => {
       throw new ApiError(403, "Only ADMIN or CS may edit order form data.");
     const order = await Order.findById(id).lean();
     if (!order) throw new ApiError(404, "Order not found");
+    if (user.role === "CS" && (!order.assignedTo || String(order.assignedTo) !== user.sub))
+      throw new ApiError(403, "Take ownership of this order before editing it.");
     if (order.status === "SUBMITTED" || order.status === "CANCELLED")
       throw new ApiError(409, "Closed orders are read-only.");
     if (

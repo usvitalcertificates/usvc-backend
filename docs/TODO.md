@@ -49,6 +49,7 @@ Scope: Phase 1 (public APIs) and Phase 2 (staff MVP) are built; PRs `feat/fulfil
 - [x] To-CS status 2026-09-24: `ON_HOLD`/`NEED_INFO` removed everywhere, replaced by single `TO_CS` park status (required internal note, `processingAt` timeline key, neutral public message, attention-first); Open Orders filter drops `SUBMITTED`; CS inbox + resume follow `TO_CS`
 - [x] GTG status 2026-09-24: `TO_CS → GTG` (CS/ADMIN only, note optional) → `GTG → IN_REVIEW` (owner/ADMIN/CS); nothing leaves `TO_CS` except via `GTG`, `GTG` never submits directly; parked states share neutral tracking + top attention priority; fulfillment sees red `TO_CS` blocker banner, green `GTG` ready banner
 - [x] Full-form CS correction 2026-09-24: `PATCH /staff/orders/:id/correction` accepts the whole form (applicant/subject/family/addresses/geo/reason/delivery + SSN/card re-entry); merged values validated via `validateCorrection()` with 422 `{message, errors}` for inline UI errors; SSN/card encrypted + audited by name only; copies/rush/cert/state/pricing locked
+- [x] Ownership loop 2026-09-24: queue lists all paid orders to every role (masked rows, gated actions); `TO_CS` auto-releases for CS to claim; CS must own to edit/Mark GTG (ADMIN bypasses); `GTG` drops ownership back to the pool for fulfillment to claim and continue
 
 ## Phase 3 (remaining + proposed backlog)
 

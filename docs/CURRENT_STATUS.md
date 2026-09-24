@@ -30,7 +30,8 @@ Last updated: 2026-09-24 (Node.js 24 LTS; AES-256-GCM confidentialData; staff ro
 
 - Fee, report, and attendance endpoints (Phase 3).
 - Invitation emails send via the Resend outbox when `EMAIL_ENABLED=true`; email-disabled envs return the setup token for manual setup. `STAFF_INVITATION` has no H1 personalization (setup-link + 48h steps only); `SUBMISSION_NOTIFICATION` subject is `Your order has been submitted — {publicNumber}` with no tracking link/footer and `vary by state to state` wording.
-- Staff roles are `ADMIN`, `FULFILLMENT`, and `CS` (legacy `STAFF` auto-migrates to `FULFILLMENT` with session revoke on deploy). Invites carry a role (default `FULFILLMENT`); ADMINs change roles via `PATCH /admin/staff/:id` (last-ADMIN guard). Order pricing is returned only to `ADMIN`/`CS`. CS corrects form data without ownership via `PATCH /staff/orders/:id/correction` (EDIT-only, audited `form_corrected`) and marks `TO_CS` → `GTG` (CS/ADMIN only, note optional).
+- Staff roles are `ADMIN`, `FULFILLMENT`, and `CS` (legacy `STAFF` auto-migrates to `FULFILLMENT` with session revoke on deploy). Invites carry a role (default `FULFILLMENT`); ADMINs change roles via `PATCH /admin/staff/:id` (last-ADMIN guard). Order pricing is returned only to `ADMIN`/`CS`. CS claims an order, corrects the full form via `PATCH /staff/orders/:id/correction` (EDIT-only, audited `form_corrected`), and marks `TO_CS` → `GTG` (note optional).
+- The fulfillment queue lists all paid orders to every role (masked rows, gated actions). Sending `TO_CS` auto-releases assignment so CS can claim; CS must own an order to correct it or mark `GTG` (ADMIN bypasses both); marking `GTG` drops ownership back to the pool so fulfillment claims and continues via `IN_REVIEW`.
 
 ## Sensitive-data boundary
 

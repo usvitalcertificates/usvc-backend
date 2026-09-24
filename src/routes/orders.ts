@@ -445,12 +445,18 @@ ordersRouter.patch("/:id/status", requireAuth, async (req, res, next) => {
     const actor = (req as typeof req & { user: AuthUser }).user;
     const order = await Order.findById(id);
     if (!order) throw new ApiError(404, "Order not found");
-    // CS lane: only CS/ADMIN may mark GTG (ownership irrelevant), and CS may
-    // resume GTG → IN_REVIEW without ownership. Nothing leaves TO_CS except
-    // via GTG — fulfillment owners can neither resume nor submit from TO_CS.
+    // CS ownership lane: CS must own the order to mark GTG (ADMIN bypasses);
+    // CS may also resume GTG → IN_REVIEW without ownership. Nothing leaves
+    // TO_CS except via GTG — fulfillment owners can neither resume nor submit.
     const toGtg = status === "GTG";
     if (toGtg && actor.role !== "CS" && actor.role !== "ADMIN")
       throw new ApiError(403, "Only CS or ADMIN may mark an order GTG.");
+    if (
+      toGtg &&
+      actor.role === "CS" &&
+      (!order.assignedTo || String(order.assignedTo) !== actor.sub)
+    )
+      throw new ApiError(403, "Take ownership of this order before marking it GTG.");
     const csLane =
       actor.role === "CS" &&
       ((order.status === "TO_CS" && toGtg) || (order.status === "GTG" && status === "IN_REVIEW"));
@@ -465,6 +471,11 @@ ordersRouter.patch("/:id/status", requireAuth, async (req, res, next) => {
     const occurredAt = new Date();
     const timelineKey = STAFF_STATUS_TIMELINE_KEYS[status];
     order.status = status;
+    // Ownership handoffs: sending To CS releases the order for CS to claim;
+    // marking GTG releases it back for fulfillment to claim and continue.
+    const releasedFrom =
+      (status === "TO_CS" || toGtg) && order.assignedTo ? String(order.assignedTo) : null;
+    if (releasedFrom) order.assignedTo = null;
     order.customerTimeline ??= {};
     order.customerTimeline[timelineKey] = occurredAt;
     order.notes ??= [];
@@ -475,7 +486,7 @@ ordersRouter.patch("/:id/status", requireAuth, async (req, res, next) => {
     order.auditEvents.push({
       actorId: actor.sub,
       action: "fulfillment_status_updated",
-      metadata: { status },
+      metadata: releasedFrom ? { status, releasedFrom } : { status },
       createdAt: occurredAt,
     });
     await order.save();
