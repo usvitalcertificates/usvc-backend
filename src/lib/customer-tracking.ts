@@ -47,7 +47,7 @@ export function publicTrackingStatus(order: TrackableOrder) {
     occurredAt: timeline[step.key] ?? updatedAt,
   }));
 
-  if (order.status === "CANCELLED" || order.status === "TO_CS") {
+  if (order.status === "CANCELLED" || isParkedStatus(order.status)) {
     return {
       currentStatus: order.status === "CANCELLED" ? "Order Requires Support" : "Order Processing",
       timeline: entries,
@@ -71,6 +71,7 @@ export function publicTrackingStatus(order: TrackableOrder) {
 export const STAFF_STATUS_TIMELINE_KEYS = {
   IN_REVIEW: "processingAt",
   TO_CS: "processingAt",
+  GTG: "processingAt",
   SUBMITTED: "submittedToAgencyAt",
 } as const;
 
@@ -79,23 +80,32 @@ export const STAFF_STATUS_TRANSITIONS = {
   IN_REVIEW: "SUBMITTED",
 } as const;
 
-/** Parked for CS correction: fulfillment sends to CS with an internal note, CS resumes. */
-export const STAFF_EXCEPTION_TRANSITIONS = {
+/**
+ * CS-lane transitions. Fulfillment sends a broken form To CS (note required);
+ * only CS/ADMIN may mark it GTG; fulfillment then resumes via IN_REVIEW.
+ * TO_CS → IN_REVIEW and GTG → SUBMITTED are intentionally absent.
+ */
+export const STAFF_PARK_TRANSITIONS = {
   IN_REVIEW: ["TO_CS"],
-  TO_CS: ["IN_REVIEW"],
+  TO_CS: ["GTG"],
+  GTG: ["IN_REVIEW"],
 } as const;
 
 export function isAllowedStaffStatusTransition(current: string, next: string): boolean {
   if (STAFF_STATUS_TRANSITIONS[current as keyof typeof STAFF_STATUS_TRANSITIONS] === next)
     return true;
-  const exceptions =
-    STAFF_EXCEPTION_TRANSITIONS[current as keyof typeof STAFF_EXCEPTION_TRANSITIONS];
-  return Array.isArray(exceptions) && (exceptions as readonly string[]).includes(next);
+  const parked = STAFF_PARK_TRANSITIONS[current as keyof typeof STAFF_PARK_TRANSITIONS];
+  return Array.isArray(parked) && (parked as readonly string[]).includes(next);
 }
 
-/** Parked-for-CS never advances the customer timeline; it requires an internal note. */
+/** Sending To CS never advances the customer timeline and requires an internal note. */
 export function isExceptionStatus(status: string): boolean {
   return status === "TO_CS";
+}
+
+/** Internal parked states (never leak detail to public tracking). */
+export function isParkedStatus(status: string): boolean {
+  return status === "TO_CS" || status === "GTG";
 }
 
 /**
@@ -104,7 +114,7 @@ export function isExceptionStatus(status: string): boolean {
  * Mirrored in the staff queue aggregation pipeline — keep the two in sync.
  */
 export function attentionPriority(status: string, rush: boolean): number {
-  if (isExceptionStatus(status)) return 0;
+  if (isParkedStatus(status)) return 0;
   if (rush) return 1;
   return 2;
 }

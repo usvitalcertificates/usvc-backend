@@ -433,8 +433,8 @@ ordersRouter.get("/:id/audit", requireAuth, async (req, res, next) => {
 });
 
 const staffStatusSchema = z.object({
-  status: z.enum(["IN_REVIEW", "TO_CS", "SUBMITTED"]),
-  // Required when sending an order To CS; kept internal only.
+  status: z.enum(["IN_REVIEW", "TO_CS", "GTG", "SUBMITTED"]),
+  // Required when sending an order To CS; kept internal only. Optional for GTG.
   note: z.string().trim().min(1).max(2000).optional(),
 });
 /** Staff fulfillment status updates. Payment confirmation remains Stripe-controlled. */
@@ -445,9 +445,16 @@ ordersRouter.patch("/:id/status", requireAuth, async (req, res, next) => {
     const actor = (req as typeof req & { user: AuthUser }).user;
     const order = await Order.findById(id);
     if (!order) throw new ApiError(404, "Order not found");
-    const isResume = status === "IN_REVIEW" && order.status === "TO_CS";
-    const csResume = actor.role === "CS" && isResume;
-    if (!csResume && !canReveal(order, actor))
+    // CS lane: only CS/ADMIN may mark GTG (ownership irrelevant), and CS may
+    // resume GTG → IN_REVIEW without ownership. Nothing leaves TO_CS except
+    // via GTG — fulfillment owners can neither resume nor submit from TO_CS.
+    const toGtg = status === "GTG";
+    if (toGtg && actor.role !== "CS" && actor.role !== "ADMIN")
+      throw new ApiError(403, "Only CS or ADMIN may mark an order GTG.");
+    const csLane =
+      actor.role === "CS" &&
+      ((order.status === "TO_CS" && toGtg) || (order.status === "GTG" && status === "IN_REVIEW"));
+    if (!csLane && !canReveal(order, actor))
       throw new ApiError(403, "Only the assigned agent or a super-admin may update this order.");
     if (order.paymentStatus !== "PAID") throw new ApiError(409, "A paid order is required.");
     if (!isAllowedStaffStatusTransition(order.status, status))

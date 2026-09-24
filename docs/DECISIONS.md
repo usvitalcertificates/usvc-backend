@@ -110,8 +110,9 @@ masked (requestor first name + last initial, no contact/PII). Claim is an atomic
 `findOneAndUpdate {assignedTo: null, PAID}` — exactly one agent wins (409
 otherwise). Only the owner-agent or super-admin may open detail, add notes,
 reveal, or change status. Statuses: `PAID → IN_REVIEW → SUBMITTED` (terminal)
-plus `TO_CS` park-and-resume from `IN_REVIEW`, which requires an
-internal note and shows only a neutral support message on public tracking.
+plus `TO_CS` park from `IN_REVIEW` (internal note required), `TO_CS → GTG`
+(CS/ADMIN only), and `GTG → IN_REVIEW` resume — all showing only a neutral
+support message on public tracking.
 Projection-loaded docs are mutated with atomic `$push`/`$set` (never `save()`),
 so audit history is never overwritten. Staff + order audit events merge in
 `GET /admin/activity`; `GET /admin/workload` reports active/completed per agent.

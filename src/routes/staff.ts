@@ -59,7 +59,7 @@ staffRouter.get("/orders", async (req, res, next) => {
     const filters = z
       .object({
         search: z.string().trim().max(120).optional(),
-        status: z.enum(["PAID", "IN_REVIEW", "TO_CS", "SUBMITTED"]).optional(),
+        status: z.enum(["PAID", "IN_REVIEW", "TO_CS", "GTG", "SUBMITTED"]).optional(),
         certificate: z.enum(["BIRTH", "DEATH", "MARRIAGE", "DIVORCE"]).optional(),
         assigned: z.enum(["mine", "unassigned", "all"]).default("all"),
         openOnly: staffFlag,
@@ -72,7 +72,7 @@ staffRouter.get("/orders", async (req, res, next) => {
     const user = reqUser(req);
     const match: Record<string, unknown> = { paymentStatus: "PAID" };
     if (filters.status) match.status = filters.status;
-    else if (filters.openOnly) match.status = { $in: ["PAID", "IN_REVIEW", "TO_CS"] };
+    else if (filters.openOnly) match.status = { $in: ["PAID", "IN_REVIEW", "TO_CS", "GTG"] };
     if (filters.rushOnly) match.rush = true;
     if (filters.certificate) match.certificate = filters.certificate;
     if (user.role === "ADMIN") {
@@ -135,7 +135,7 @@ staffRouter.get("/orders", async (req, res, next) => {
         {
           $addFields: {
             __priority: {
-              $cond: [{ $in: ["$status", ["TO_CS"]] }, 0, { $cond: ["$rush", 1, 2] }],
+              $cond: [{ $in: ["$status", ["TO_CS", "GTG"]] }, 0, { $cond: ["$rush", 1, 2] }],
             },
           },
         },
