@@ -417,14 +417,14 @@ ordersRouter.post("/:id/reveal", requireAuth, revealLimiter, async (req, res, ne
   }
 });
 
-/** Staff-only audit history. Owner, ADMIN, or CS; events never contain secrets. */
+/** Staff-only audit history. Owner-agent or ADMIN only; events never contain secrets. */
 ordersRouter.get("/:id/audit", requireAuth, async (req, res, next) => {
   try {
     const id = z.string().min(1).parse(req.params.id);
     const user = (req as typeof req & { user: AuthUser }).user;
     const order = await Order.findById(id, { auditEvents: 1, assignedTo: 1 });
     if (!order) throw new ApiError(404, "Order not found");
-    if (user.role !== "CS" && !canReveal(order, user))
+    if (!canReveal(order, user))
       throw new ApiError(403, "Only the assigned agent or a super-admin may view this audit.");
     res.json({ auditEvents: order.auditEvents ?? [] });
   } catch (e) {
@@ -445,9 +445,9 @@ ordersRouter.patch("/:id/status", requireAuth, async (req, res, next) => {
     const actor = (req as typeof req & { user: AuthUser }).user;
     const order = await Order.findById(id);
     if (!order) throw new ApiError(404, "Order not found");
-    // CS ownership lane: CS must own the order to mark GTG (ADMIN bypasses);
-    // CS may also resume GTG → IN_REVIEW without ownership. Nothing leaves
-    // TO_CS except via GTG — fulfillment owners can neither resume nor submit.
+    // CS lane: only CS/ADMIN may mark GTG, and CS must own the order (claim
+    // first). Nothing leaves TO_CS except via GTG — nobody resumes or submits
+    // from TO_CS, including the owner. GTG → IN_REVIEW is owner-or-ADMIN.
     const toGtg = status === "GTG";
     if (toGtg && actor.role !== "CS" && actor.role !== "ADMIN")
       throw new ApiError(403, "Only CS or ADMIN may mark an order GTG.");
@@ -457,10 +457,7 @@ ordersRouter.patch("/:id/status", requireAuth, async (req, res, next) => {
       (!order.assignedTo || String(order.assignedTo) !== actor.sub)
     )
       throw new ApiError(403, "Take ownership of this order before marking it GTG.");
-    const csLane =
-      actor.role === "CS" &&
-      ((order.status === "TO_CS" && toGtg) || (order.status === "GTG" && status === "IN_REVIEW"));
-    if (!csLane && !canReveal(order, actor))
+    if (!canReveal(order, actor))
       throw new ApiError(403, "Only the assigned agent or a super-admin may update this order.");
     if (order.paymentStatus !== "PAID") throw new ApiError(409, "A paid order is required.");
     if (!isAllowedStaffStatusTransition(order.status, status))

@@ -279,9 +279,10 @@ staffRouter.post("/orders/:id/reassign", async (req, res, next) => {
 });
 
 /**
- * Full operational detail. Owner-agent, CS, or ADMIN. SSN/card stay
- * masked (`*********`) — use POST /orders/:id/reveal for audited access.
- * Pricing (`pricing` + `amountCents`) is returned only to ADMIN + CS.
+ * Full operational detail. Owner-agent or ADMIN only — CS included: CS opens
+ * only owned orders, like fulfillment. SSN/card stay masked (`*********`) —
+ * use POST /orders/:id/reveal for audited access. Pricing is returned only
+ * to ADMIN + CS.
  */
 staffRouter.get("/orders/:id", async (req, res, next) => {
   try {
@@ -290,7 +291,7 @@ staffRouter.get("/orders/:id", async (req, res, next) => {
     const order = await Order.findById(id, { confidentialData: 0 }).lean();
     if (!order) throw new ApiError(404, "Order not found");
     const owner = order.assignedTo ? String(order.assignedTo) : null;
-    if (!canCorrectOrders(user.role) && owner !== user.sub)
+    if (owner !== user.sub && user.role !== "ADMIN")
       throw new ApiError(403, "Only the assigned agent or a super-admin may open this order.");
     const assignee = owner
       ? await StaffUser.findById(owner, { fullName: 1, email: 1 }).lean()
@@ -311,7 +312,7 @@ staffRouter.get("/orders/:id", async (req, res, next) => {
   }
 });
 
-/** Internal notes. Owner, CS, or ADMIN. Never shown to the customer. */
+/** Internal notes. Owner-agent or ADMIN only. Never shown to the customer. */
 staffRouter.post("/orders/:id/notes", async (req, res, next) => {
   try {
     const id = z.string().min(1).parse(req.params.id);
@@ -320,7 +321,7 @@ staffRouter.post("/orders/:id/notes", async (req, res, next) => {
     const order = await Order.findById(id, { assignedTo: 1 }).lean();
     if (!order) throw new ApiError(404, "Order not found");
     const owner = order.assignedTo ? String(order.assignedTo) : null;
-    if (!canCorrectOrders(user.role) && owner !== user.sub)
+    if (owner !== user.sub && user.role !== "ADMIN")
       throw new ApiError(403, "Only the assigned agent or a super-admin may add notes.");
     const occurredAt = new Date();
     // Atomic $push: the doc is loaded with a projection, so save() here
