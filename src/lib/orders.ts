@@ -1,8 +1,8 @@
 /** Two-fee model: only the Online Processing Fee (+ optional rush) is charged
- *  now. Government / agency / shipping fees are charged separately later via
- *  the stored card — never in this total. */
+ *  now ($149/copy + $45 rush). Government / agency / shipping fees are
+ *  charged separately later via the stored card — never in this total. */
 export const priceOrder = (copies: number, rush: boolean, _international: boolean) =>
-  copies * 12500 + (rush ? 3000 : 0);
+  copies * 14900 + (rush ? 4500 : 0);
 
 export const ORDER_TYPE_CODES = {
   BIRTH: "BT",
