@@ -22,6 +22,7 @@ import {
   publicTrackingStatus,
   STAFF_STATUS_TIMELINE_KEYS,
 } from "../lib/customer-tracking.js";
+import { staffStatusUpdateSchema } from "../lib/order-substatus.js";
 import rateLimit from "express-rate-limit";
 
 const stripe = new Stripe(env.STRIPE_SECRET_KEY);
@@ -432,16 +433,11 @@ ordersRouter.get("/:id/audit", requireAuth, async (req, res, next) => {
   }
 });
 
-const staffStatusSchema = z.object({
-  status: z.enum(["IN_REVIEW", "TO_CS", "GTG", "SUBMITTED"]),
-  // Required when sending an order To CS; kept internal only. Optional for GTG.
-  note: z.string().trim().min(1).max(2000).optional(),
-});
 /** Staff fulfillment status updates. Payment confirmation remains Stripe-controlled. */
 ordersRouter.patch("/:id/status", requireAuth, async (req, res, next) => {
   try {
     const id = z.string().min(1).parse(req.params.id);
-    const { status, note } = staffStatusSchema.parse(req.body);
+    const { status, note, substatus } = staffStatusUpdateSchema.parse(req.body);
     const actor = (req as typeof req & { user: AuthUser }).user;
     const order = await Order.findById(id);
     if (!order) throw new ApiError(404, "Order not found");
@@ -468,6 +464,8 @@ ordersRouter.patch("/:id/status", requireAuth, async (req, res, next) => {
     const occurredAt = new Date();
     const timelineKey = STAFF_STATUS_TIMELINE_KEYS[status];
     order.status = status;
+    // Optional To-CS substatus; cleared on any other move (audit keeps history).
+    order.substatus = status === "TO_CS" ? (substatus ?? null) : null;
     // Ownership handoffs: sending To CS releases the order for CS to claim;
     // marking GTG releases it back for fulfillment to claim and continue.
     const releasedFrom =
@@ -483,7 +481,11 @@ ordersRouter.patch("/:id/status", requireAuth, async (req, res, next) => {
     order.auditEvents.push({
       actorId: actor.sub,
       action: "fulfillment_status_updated",
-      metadata: releasedFrom ? { status, releasedFrom } : { status },
+      metadata: {
+        status,
+        ...(substatus && status === "TO_CS" ? { substatus } : {}),
+        ...(releasedFrom ? { releasedFrom } : {}),
+      },
       createdAt: occurredAt,
     });
     await order.save();
@@ -506,7 +508,11 @@ ordersRouter.patch("/:id/status", requireAuth, async (req, res, next) => {
         { upsert: true },
       );
     }
-    res.json({ status: order.status, updatedAt: order.updatedAt });
+    res.json({
+      status: order.status,
+      substatus: order.substatus ?? null,
+      updatedAt: order.updatedAt,
+    });
   } catch (e) {
     next(e);
   }

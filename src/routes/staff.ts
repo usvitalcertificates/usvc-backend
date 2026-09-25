@@ -52,6 +52,7 @@ interface QueueRow {
   copies: number;
   rush: boolean;
   status: string;
+  substatus?: string | null;
   assignedTo?: unknown;
   notes?: { body?: string }[];
   auditEvents?: {
@@ -180,6 +181,7 @@ staffRouter.get("/orders", async (req, res, next) => {
       copies: 1,
       rush: 1,
       status: 1,
+      substatus: 1,
       assignedTo: 1,
       // Latest internal note only (excerpt for queue context, never secrets).
       notes: { $slice: -1 },
@@ -261,6 +263,7 @@ staffRouter.get("/orders", async (req, res, next) => {
         copies: row.copies,
         rush: row.rush,
         status: row.status,
+        substatus: row.substatus ?? null,
         assignedToMe: !!row.assignedTo && String(row.assignedTo) === user.sub,
         assignedName: row.assignedTo ? (ownerNames.get(String(row.assignedTo)) ?? "Staff") : null,
         lastNote: row.notes?.at(-1)?.body?.slice(0, 140) ?? null,

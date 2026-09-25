@@ -123,3 +123,8 @@ so audit history is never overwritten. Staff + order audit events merge in
 - Payments: Stripe Checkout Sessions (`ui_mode: elements`, embedded tabs) — one charge path only; the older PaymentIntent endpoint was removed.
 - DB/Auth: stay Mongo + Mongoose + JWT + TOTP (`otpauth`). No Supabase/Postgres rewrite, no second database without a migration plan.
 - Do not build custody/vault/second-charge. Do not over-engineer: no extra plan/roadmap docs beyond `TODO.md`, `CURRENT_STATUS.md`, `DECISIONS.md`, `API.md`.
+
+## Locked 2026-09-25: To-CS substatus
+
+- Parking an order To CS accepts an optional `substatus` from the 26-value MILES-parity list in `src/lib/order-substatus.ts` ("2nd Contact"/"3rd Contact" excluded per owner — single-touch reasons only). The note stays compulsory; the substatus is never required.
+- The enum is validated at the API boundary (`staffStatusUpdateSchema`); any substatus on a non-`TO_CS` move is a 422. It is stored on the order (`substatus`, default null), echoed into the `fulfillment_status_updated` audit metadata, cleared on any other move, and returned by the status endpoint. The frontend mirrors the list; the backend enum is the source of truth.

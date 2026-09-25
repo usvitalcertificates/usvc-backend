@@ -122,6 +122,11 @@ const OrderSchema = new Schema(
       enum: ["PENDING", "PAID", "FAILED", "REFUNDED"],
       default: "PENDING",
     },
+    /**
+     * Optional MILES-parity reason picked when an order is parked To CS.
+     * Cleared on any other move; history survives in audit metadata.
+     */
+    substatus: { type: String, default: null },
     /** Fixed, public-safe milestone timestamps. Never stores staff notes or application data. */
     customerTimeline: {
       paymentSuccessfulAt: Date,
