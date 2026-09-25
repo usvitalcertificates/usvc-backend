@@ -23,6 +23,14 @@ services:
         sync: false
       - key: GA4_MEASUREMENT_PROTOCOL_API_SECRET
         sync: false
+      - key: OPENAI_CONVERSIONS_ENABLED
+        value: false
+      - key: OPENAI_ADS_PIXEL_ID
+        sync: false
+      - key: OPENAI_CONVERSIONS_API_KEY
+        sync: false
+      - key: OPENAI_CONVERSION_SOURCE_URL
+        sync: false
       - key: SENSITIVE_ENCRYPTION_KEY
         sync: false
       - key: SENSITIVE_KEY_ID

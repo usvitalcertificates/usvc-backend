@@ -1,9 +1,11 @@
 import { Router } from "express";
+import { randomUUID } from "node:crypto";
 import Stripe from "stripe";
 import mongoose from "mongoose";
 import { env } from "../config/env.js";
 import { EmailOutbox } from "../models/email-outbox.js";
 import { AnalyticsPurchaseDelivery } from "../models/analytics-purchase-delivery.js";
+import { OpenAIConversionDelivery } from "../models/openai-conversion-delivery.js";
 import { Order } from "../models/order.js";
 import { StripeEvent } from "../models/staff.js";
 const stripe = new Stripe(env.STRIPE_SECRET_KEY);
@@ -115,6 +117,9 @@ webhookRouter.post("/stripe", async (req, res, next) => {
               rush: 1,
               "analytics.clientId": 1,
               "analytics.sessionId": 1,
+              "analytics.openAiEventId": 1,
+              "analytics.openAiOppref": 1,
+              "analytics.openAiObref": 1,
             },
             { session },
           ).lean();
@@ -182,6 +187,48 @@ webhookRouter.post("/stripe", async (req, res, next) => {
                     auditEvents: {
                       action: "analytics_purchase_queued",
                       metadata: { outboxId },
+                      createdAt: new Date(),
+                    },
+                  },
+                },
+                { session },
+              );
+          }
+          // Server-side OpenAI Ads conversion (order_created) on verified
+          // payment only. Mirrors the GA4 purchase outbox above: idempotent
+          // per order, retried by the outbox worker, key never leaves the
+          // server. The browser pixel fires the same event independently;
+          // the shared eventId lets OpenAI deduplicate.
+          if (order && paymentConfirmed && env.OPENAI_CONVERSIONS_ENABLED) {
+            const openAiOutboxId = `openai-conversion:${validId}`;
+            const openAiQueued = await OpenAIConversionDelivery.updateOne(
+              { _id: openAiOutboxId },
+              {
+                $setOnInsert: {
+                  orderId: order._id,
+                  eventId: order.analytics?.openAiEventId || randomUUID(),
+                  occurredAt: paymentConfirmedAt,
+                  amountCents: order.amountCents,
+                  currency: order.currency,
+                  certificate: order.certificate,
+                  copies: order.copies,
+                  oppref: order.analytics?.openAiOppref ?? "",
+                  obref: order.analytics?.openAiObref ?? "",
+                  status: "PENDING",
+                  attempts: 0,
+                  nextAttemptAt: new Date(),
+                },
+              },
+              { upsert: true, session },
+            );
+            if (openAiQueued.upsertedCount)
+              await Order.updateOne(
+                { _id: validId },
+                {
+                  $push: {
+                    auditEvents: {
+                      action: "openai_conversion_queued",
+                      metadata: { outboxId: openAiOutboxId },
                       createdAt: new Date(),
                     },
                   },

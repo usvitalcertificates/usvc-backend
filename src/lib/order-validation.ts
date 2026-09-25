@@ -172,6 +172,8 @@ export const createOrderSchema = z.object({
         .max(100)
         .regex(/^[A-Za-z0-9._-]+$/)
         .optional(),
+      openAiOppref: z.string().trim().min(1).max(500).optional(),
+      openAiObref: z.string().trim().min(1).max(500).optional(),
     })
     .optional(),
   /** Client display total; server recomputes and rejects mismatches. Never trusted. */

@@ -4,6 +4,7 @@ import { connectDb } from "./lib/db.js";
 import { migrateStaffRoles } from "./lib/staff-role-migration.js";
 import { startEmailOutboxWorker } from "./lib/email-outbox.js";
 import { startAnalyticsOutboxWorker } from "./lib/analytics-outbox.js";
+import { startOpenAIConversionOutboxWorker } from "./lib/openai-conversion-outbox.js";
 connectDb()
   .then(async () => {
     const { migrated } = await migrateStaffRoles().catch((error) => {
@@ -14,6 +15,7 @@ connectDb()
     return app.listen(env.PORT, () => {
       startEmailOutboxWorker();
       startAnalyticsOutboxWorker();
+      startOpenAIConversionOutboxWorker();
       console.log(`USVC API listening on ${env.PORT}`);
     });
   })

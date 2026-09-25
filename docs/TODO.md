@@ -28,6 +28,7 @@ Scope: Phase 1 (public APIs) and Phase 2 (staff MVP) are built; PRs `feat/fulfil
 - [x] Rush/non-rush confirmation copy 2026-09-23 ("reviewed." shared line; Rush channel paragraph when `rushCents > 0`) + light email logo (`usvc-logo-light.png` direct URL)
 - [x] Contact validation 2026-09-23: E.164 international phone (`applicant.phone`, `+` + 7–15 digits) + SSN plausibility (area/group/serial rules) with tests
 - [x] GA4 state tracking 2026-09-23: `state_code` (+ `certificate`) on server `purchase` via `AnalyticsPurchaseDelivery.stateCode`; `stateCode` added to the checkout summary projection
+- [x] OpenAI Ads server conversion 2026-09-25 (`feat/openai-conversions-api`): order create persists a server `openAiEventId` + optional `openAiOppref`/`openAiObref`; verified-payment webhooks enqueue one `order_created` delivery (`openai_conversion_deliveries`, idempotent per order) sent with the Conversions API key by the leased outbox worker; payload builder tested, secrets stay server-side
 - [x] Proof: `npm run build && npm test` passes — green 2026-09-23 (52 tests)
 
 ## Phase 2 (staff MVP — built 2026-09-23 on `feat/fulfillment-mvp`)
