@@ -75,7 +75,7 @@ Payment-confirmation email uses Resend and is triggered only by signed Stripe su
 
 ## Pricing
 
-Pricing is calculated in integer cents on the server. Two-fee model (owner decision 2026-09-21, matching usvitalrecords.org): only the $125/copy Online Processing Fee plus optional $30 rush is charged now (`priceOrder`). Government / agency / shipping fees are charged separately later via the stored card and never enter the order total. The old all-inclusive bundle formula was removed from pricing, sessions, and all UI.
+Pricing is calculated in integer cents on the server. Two-fee model (owner decision 2026-09-21, matching usvitalrecords.org): only the $149/copy Online Processing Fee plus optional $45 rush is charged now (`priceOrder`). Government / agency / shipping fees are charged separately later via the stored card and never enter the order total. The old all-inclusive bundle formula was removed from pricing, sessions, and all UI.
 
 ## Staff auth (custom TOTP, locked 2026-09-23)
 

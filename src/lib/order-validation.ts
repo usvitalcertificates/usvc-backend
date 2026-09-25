@@ -481,8 +481,8 @@ export function validateCorrection(input: CorrectionCandidate): OrderValidationR
 }
 
 export function pricingBreakdown(copies: number, rush: boolean, _international: boolean) {
-  const serviceCents = 12500 * copies;
-  const rushCents = rush ? 3000 : 0;
+  const serviceCents = 14900 * copies;
+  const rushCents = rush ? 4500 : 0;
   const totalCents = serviceCents + rushCents;
   return { serviceCents, rushCents, totalCents };
 }

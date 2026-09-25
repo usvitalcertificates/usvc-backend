@@ -270,7 +270,7 @@ ordersRouter.post("/:id/checkout-session", async (req, res, next) => {
             quantity: order.copies,
             price_data: {
               currency: "usd",
-              unit_amount: 12500,
+              unit_amount: 14900,
               product_data: {
                 name: `${order.stateName} ${certLabel} Certificate — Online Processing Fee`,
               },
@@ -282,7 +282,7 @@ ordersRouter.post("/:id/checkout-session", async (req, res, next) => {
                   quantity: 1,
                   price_data: {
                     currency: "usd",
-                    unit_amount: 3000,
+                    unit_amount: 4500,
                     product_data: { name: "Rush Processing" },
                   },
                 },
