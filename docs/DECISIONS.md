@@ -132,4 +132,4 @@ so audit history is never overwritten. Staff + order audit events merge in
 ## Locked 2026-09-25: completion PDF
 
 - Each order carries at most one completion PDF, stored in MongoDB GridFS (`order_docs` bucket) — Atlas-hosted like everything else, no new infrastructure (local disk is ephemeral on Render; S3 would need new credentials). Uploads are memory-held, capped at 10 MB, and verified by `%PDF-` magic bytes, not just extension or mimetype.
-- `POST/GET/DELETE /orders/:id/document` are owner-agent-or-ADMIN with `document_uploaded/downloaded/deleted` audit events. Fulfillment must attach the PDF and write a completion note before `SUBMITTED` (422 otherwise); ADMIN bypasses the gate and CS never submits, so neither is gated.
+- `POST/GET/DELETE /orders/:id/document` are owner-agent-or-ADMIN with `document_uploaded/downloaded/deleted` audit events. Fulfillment needs the PDF plus at least one order note on file before `SUBMITTED` (422 otherwise); ADMIN bypasses the gate and CS never submits, so neither is gated.

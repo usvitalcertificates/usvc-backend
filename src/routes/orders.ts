@@ -468,12 +468,14 @@ ordersRouter.patch("/:id/status", requireAuth, async (req, res, next) => {
       throw new ApiError(422, "Order statuses must move forward one step at a time.");
     if (isExceptionStatus(status) && !note)
       throw new ApiError(422, "An internal note is required for To CS.");
-    // Completion package: fulfillment must attach the single PDF and write a
-    // note before SUBMITTED. ADMIN bypasses the gate; CS never submits.
+    // Completion package: fulfillment needs at least one order note and the
+    // single PDF attached before SUBMITTED. ADMIN bypasses the gate; CS
+    // never submits.
     if (status === "SUBMITTED" && actor.role !== "ADMIN") {
       if (!order.document?.fileId)
         throw new ApiError(422, "Upload the completion PDF before submitting.");
-      if (!note) throw new ApiError(422, "A completion note is required before submitting.");
+      if ((order.notes ?? []).length === 0)
+        throw new ApiError(422, "Add at least one order note before submitting.");
     }
 
     const occurredAt = new Date();
