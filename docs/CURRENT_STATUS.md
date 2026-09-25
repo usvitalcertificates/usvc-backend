@@ -1,6 +1,6 @@
 # Current backend status
 
-Last updated: 2026-09-23 (Node.js 24 LTS; AES-256-GCM confidentialData; plaintext SSN/card removed; reveal + audit routes; birth-form requirements; temporary California county block).
+Last updated: 2026-09-25 (Node.js 24 LTS; AES-256-GCM confidentialData; staff roles ADMIN/FULFILLMENT/CS; pricing gated to ADMIN+CS; audit-derived, date-filtered per-staff analytics; optional To-CS substatus; FIFO queue sort; completion PDF; no shared API request cap).
 
 ## Implemented
 
@@ -11,26 +11,33 @@ Last updated: 2026-09-23 (Node.js 24 LTS; AES-256-GCM confidentialData; plaintex
 - `POST /orders/verify-before-payment` (dry run), `GET /orders/geo/:stateCode`, staff login, tracking lookup (`confidentialData`-safe projection), signed idempotent Stripe webhooks via Mongoose transactions.
 - Staff-only `POST /orders/:id/reveal` (per-field SSN/card, reason required, assigned-agent or super-admin, rate-limited, audit-logged) and `GET /orders/:id/audit` (same authorization). Frontend shows `*********` until reveal; no last-4 or brand stored.
 - Public order numbers are globally sequential plate codes (`US<state>-<type>-<YYYYMMDD>-<DDLetterDDD>`, e.g. `USCA-BT-20260922-00A001`) from an atomic `counters.orderSeq`; duplicate-key conflicts retry with the next sequence. Tracking and all other consumers treat the number as an opaque string.
-- Payment-confirmation email branches on rush: shared "Your application will be reviewed." line, standard workflow paragraph normally, Rush-channel paragraph when rush was paid. All emails use the light logo via direct `usvc-logo-light.png` URL (135KB vs the 1MB dark logo).
+- Payment-confirmation email branches on rush: shared "Your application will be reviewed." line, standard workflow paragraph normally, Rush-channel paragraph when rush was paid. All emails are text-only branded headers (no remote images — inbox-safe by tested construction).
 - `render.yaml` declares `SENSITIVE_ENCRYPTION_KEY` (secret, `sync: false`) and `SENSITIVE_KEY_ID=v1`; set a fresh key per Render environment (staging + production) via the dashboard — see `DEPLOYMENT.md`.
-- Public tracking returns only a customer-safe timeline: Payment Successful, Order Received, Order Processing, and Order Processed – Submitted to the Govt Agency (final step). Stripe webhook payment confirmation creates the first two milestones; authenticated staff can move paid orders forward one fulfillment step at a time through the staff status endpoint.
+- Public tracking returns only a customer-safe timeline: Payment Successful, Order Received, Order Processing, and Order Processed – Submitted to the Govt Agency (final step). Stripe webhook payment confirmation creates the first two milestones; authenticated staff can move paid orders forward one fulfillment step at a time through the staff status endpoint (`PAID → IN_REVIEW → SUBMITTED`, plus `IN_REVIEW → TO_CS` with required note, `TO_CS → GTG` by CS/ADMIN, `GTG → IN_REVIEW` resume; parked orders show a neutral support message publicly).
 - Paid Stripe webhooks atomically queue one Resend confirmation per order in `email_outbox`. The background worker leases jobs, uses provider idempotency, retries temporary failures with exponential backoff, and records sanitized delivery audit events.
 - When production analytics is enabled, paid Stripe webhooks atomically queue one GA4 Purchase in `analytics_purchase_deliveries`. The worker sends only public order number, charged amount, USD, certificate type, state code, copies, and rush status; it retries safely and records sanitized order audit events. Browser tracking never emits Purchase.
 - All Resend HTML emails display the public USVC logo in a shared branded header. Inbox sender-avatar display remains controlled by recipient email clients and requires owner-managed BIMI and/or Apple Branded Mail verification.
 - `POST /contact-messages` validates and stores contact inquiries indefinitely in `contact_messages`. It has a contact-only honeypot, minimum completion time, and five-per-15-minute IP limit. Each accepted message atomically queues one support notification and one customer receipt through the same durable Resend outbox; likely SSN/card content is flagged but not blocked.
 - Checkout Sessions: `GET /orders/checkout-config`, `GET /orders/:id/summary` (whitelisted), `POST /orders/:id/checkout-session` (create/reuse, server total, 3 line items), `POST /orders/checkout-session/confirm` (Stripe-verified paid marking). PaymentIntent endpoint removed. Real $238 test payment verified end to end (embedded tabs → paid receipt, PAID/PAID + intent + audit).
-- 16 unit tests; E2E verified: two-fee totals (1-copy $125, 20-copy rush $2,530), 21-copy rejection, Visa/MC + 3-digit CVV enforcement, CA-birth SSN/DOB requirement, payment-authorization consent + Other enforcement.
+- 52 unit tests, all passing; `npm run build` clean. E2E verified: two-fee totals (1-copy $125, 20-copy rush $2,530), 21-copy rejection, Visa/MC + 3-digit CVV enforcement, CA-birth SSN/DOB requirement, payment-authorization consent + Other enforcement; staff invite → TOTP → claim → exception → close loop vs scratch DB.
 
-- MongoDB Atlas connection using the official Node.js driver and Stable API settings.
+- MongoDB Atlas connection through Mongoose; the raw `mongodb` driver was removed 2026-09-21.
 - Collections: `staff_users`, `orders`, `contact_messages`, `stripe_events`, `email_outbox`, `government_fees`, and `attendance_records`.
 - Unique/query indexes for staff email, public order number, Stripe PaymentIntent ID, fee configuration, attendance records, order tracking, and status queues.
-- Auth login, order creation, PaymentIntent creation, tracking lookup, signed Stripe webhook intake, and idempotent webhook processing.
+- Staff auth, order creation, tracking lookup, signed Stripe webhook intake, and idempotent webhook processing. Checkout uses Stripe Checkout Sessions (the older PaymentIntent endpoint was removed).
 
 ## In progress / not yet exposed as routes
 
-- Refresh/logout, invitation acceptance, password setup, and TOTP MFA.
-- Fee, report, and attendance endpoints; a staff fulfillment UI remains to be built over the protected status endpoint.
-- Admin UI support and more restrictive public tracking projection.
+- Fee, report, and attendance endpoints (Phase 3).
+- Invitation emails send via the Resend outbox when `EMAIL_ENABLED=true`; email-disabled envs return the setup token for manual setup. `STAFF_INVITATION` has no H1 personalization (setup-link + 48h steps only); `SUBMISSION_NOTIFICATION` subject is `Your order has been submitted — {publicNumber}` with no tracking link/footer and `vary by state to state` wording.
+- Staff roles are `ADMIN`, `FULFILLMENT`, and `CS` (legacy `STAFF` auto-migrates to `FULFILLMENT` with session revoke on deploy). Invites carry a role (default `FULFILLMENT`); ADMINs change roles via `PATCH /admin/staff/:id` (last-ADMIN guard). Order pricing is returned only to `ADMIN`/`CS`. CS claims an order, corrects the full form via `PATCH /staff/orders/:id/correction` (EDIT-only, audited `form_corrected`), and marks `TO_CS` → `GTG` (note optional).
+- `GET /admin/staff/:id/analytics` reports unique forms claimed, sent to CS, submitted, and handled by one staff member for an inclusive date range. Results are filterable by current workflow and return only safe order-list metadata.
+- Every authenticated staff member can access the same metrics for their own identity through `GET /staff/analytics`; the server derives the identity from the access token and never accepts another user ID.
+- Administration exposes a searchable order-centric activity index and sanitized per-order timelines. To-CS/submitted analytics filters use the same actor events as their KPI counts, so card and row totals stay aligned.
+- The fulfillment queue lists all paid orders to every role (masked rows, gated actions). Sending `TO_CS` auto-releases assignment so CS can claim; CS must own an order to correct it or mark `GTG` (ADMIN bypasses both); marking `GTG` drops ownership back to the pool so fulfillment claims and continues via `IN_REVIEW`. The `TO_CS` park accepts an optional substatus from the MILES-parity list (no 2nd/3rd Contact); it is stored on the order, echoed in audit metadata, cleared on any other move, and rejected anywhere else with a 422.
+- Queue responses derive `sentToCsAt` from the latest `fulfillment_status_updated` audit event with `TO_CS`; no raw audit events are returned. Queues sort oldest-first by `createdAt` (first come, first served).
+- Each order holds a single completion PDF in GridFS (`order_docs`, 10 MB, PDF-only): `POST/GET/DELETE /orders/:id/document` for the owner-agent or ADMIN with upload/download/delete audit events. Fulfillment needs the PDF plus at least one order note on file before `SUBMITTED` (422 otherwise); ADMIN bypasses the gate.
+- The shared 100-requests-per-15-minutes API limiter has been removed so normal staff navigation is not throttled; sign-in, tracking, contact, and sensitive-data reveal limits remain active.
 
 ## Sensitive-data boundary
 

@@ -22,7 +22,7 @@ export async function nextSequence(name: string): Promise<number> {
   const doc = await Counter.findOneAndUpdate(
     { _id: name },
     { $inc: { value: 1 } },
-    { upsert: true, new: true },
+    { upsert: true, returnDocument: "after" },
   ).lean();
   if (!doc || !Number.isSafeInteger(doc.value) || doc.value < 1)
     throw new Error(`Sequence ${name} is unavailable.`);

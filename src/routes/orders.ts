@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type NextFunction, type Request, type Response } from "express";
 import Stripe from "stripe";
 import { z } from "zod";
 import { env } from "../config/env.js";
@@ -11,16 +11,27 @@ import {
   validateOrderSubmission,
 } from "../lib/order-validation.js";
 import { Order } from "../models/order.js";
+import { EmailOutbox } from "../models/email-outbox.js";
 import { nextOrderSequence } from "../models/counter.js";
 import { ApiError } from "../middleware/errors.js";
 import { requireAuth, type AuthUser } from "../middleware/auth.js";
 import { decryptSensitive, encryptSensitive } from "../lib/crypto.js";
 import {
   isAllowedStaffStatusTransition,
+  isExceptionStatus,
   publicTrackingStatus,
   STAFF_STATUS_TIMELINE_KEYS,
 } from "../lib/customer-tracking.js";
+import { staffStatusUpdateSchema } from "../lib/order-substatus.js";
 import rateLimit from "express-rate-limit";
+import multer from "multer";
+import {
+  deleteOrderDocument,
+  openOrderDocument,
+  ORDER_DOCUMENT_MAX_BYTES,
+  storeOrderDocument,
+  validateOrderDocument,
+} from "../lib/order-document.js";
 
 const stripe = new Stripe(env.STRIPE_SECRET_KEY);
 
@@ -385,6 +396,7 @@ ordersRouter.post("/:id/reveal", requireAuth, revealLimiter, async (req, res, ne
     if (field === "ssn") {
       if (!secrets.ssnEnc) throw new ApiError(404, "No SSN stored for this order.");
       const ssn = decryptSensitive(secrets.ssnEnc);
+      order.auditEvents ??= [];
       order.auditEvents.push({
         actorId: user.sub,
         action: "sensitive_reveal",
@@ -400,6 +412,7 @@ ordersRouter.post("/:id/reveal", requireAuth, revealLimiter, async (req, res, ne
       expiry: decryptSensitive(secrets.cardExpiryEnc ?? ""),
       securityCode: decryptSensitive(secrets.cardCvcEnc ?? ""),
     };
+    order.auditEvents ??= [];
     order.auditEvents.push({
       actorId: user.sub,
       action: "sensitive_reveal",
@@ -413,7 +426,7 @@ ordersRouter.post("/:id/reveal", requireAuth, revealLimiter, async (req, res, ne
   }
 });
 
-/** Staff-only audit history. Same authorization as reveal; events never contain secrets. */
+/** Staff-only audit history. Owner-agent or ADMIN only; events never contain secrets. */
 ordersRouter.get("/:id/audit", requireAuth, async (req, res, next) => {
   try {
     const id = z.string().min(1).parse(req.params.id);
@@ -428,31 +441,226 @@ ordersRouter.get("/:id/audit", requireAuth, async (req, res, next) => {
   }
 });
 
-const staffStatusSchema = z.object({ status: z.enum(["IN_REVIEW", "SUBMITTED"]) });
 /** Staff fulfillment status updates. Payment confirmation remains Stripe-controlled. */
 ordersRouter.patch("/:id/status", requireAuth, async (req, res, next) => {
   try {
     const id = z.string().min(1).parse(req.params.id);
-    const { status } = staffStatusSchema.parse(req.body);
+    const { status, note, substatus } = staffStatusUpdateSchema.parse(req.body);
+    const actor = (req as typeof req & { user: AuthUser }).user;
     const order = await Order.findById(id);
     if (!order) throw new ApiError(404, "Order not found");
+    // CS lane: only CS/ADMIN may mark GTG, and CS must own the order (claim
+    // first). Nothing leaves TO_CS except via GTG — nobody resumes or submits
+    // from TO_CS, including the owner. GTG → IN_REVIEW is owner-or-ADMIN.
+    const toGtg = status === "GTG";
+    if (toGtg && actor.role !== "CS" && actor.role !== "ADMIN")
+      throw new ApiError(403, "Only CS or ADMIN may mark an order GTG.");
+    if (
+      toGtg &&
+      actor.role === "CS" &&
+      (!order.assignedTo || String(order.assignedTo) !== actor.sub)
+    )
+      throw new ApiError(403, "Take ownership of this order before marking it GTG.");
+    if (!canReveal(order, actor))
+      throw new ApiError(403, "Only the assigned agent or a super-admin may update this order.");
     if (order.paymentStatus !== "PAID") throw new ApiError(409, "A paid order is required.");
     if (!isAllowedStaffStatusTransition(order.status, status))
       throw new ApiError(422, "Order statuses must move forward one step at a time.");
+    if (isExceptionStatus(status) && !note)
+      throw new ApiError(422, "An internal note is required for To CS.");
+    // Completion package: fulfillment needs at least one order note and the
+    // single PDF attached before SUBMITTED. ADMIN bypasses the gate; CS
+    // never submits.
+    if (status === "SUBMITTED" && actor.role !== "ADMIN") {
+      if (!order.document?.fileId)
+        throw new ApiError(422, "Upload the completion PDF before submitting.");
+      if ((order.notes ?? []).length === 0)
+        throw new ApiError(422, "Add at least one order note before submitting.");
+    }
 
     const occurredAt = new Date();
     const timelineKey = STAFF_STATUS_TIMELINE_KEYS[status];
     order.status = status;
+    // Optional To-CS substatus; cleared on any other move (audit keeps history).
+    order.substatus = status === "TO_CS" ? (substatus ?? null) : null;
+    // Ownership handoffs: sending To CS releases the order for CS to claim;
+    // marking GTG releases it back for fulfillment to claim and continue.
+    const releasedFrom =
+      (status === "TO_CS" || toGtg) && order.assignedTo ? String(order.assignedTo) : null;
+    if (releasedFrom) order.assignedTo = null;
     order.customerTimeline ??= {};
     order.customerTimeline[timelineKey] = occurredAt;
+    order.notes ??= [];
+    order.auditEvents ??= [];
+    if (note) {
+      order.notes.push({ authorId: actor.sub, body: note, createdAt: occurredAt });
+    }
     order.auditEvents.push({
-      actorId: (req as typeof req & { user: { sub: string } }).user.sub,
+      actorId: actor.sub,
       action: "fulfillment_status_updated",
-      metadata: { status },
+      metadata: {
+        status,
+        ...(substatus && status === "TO_CS" ? { substatus } : {}),
+        ...(releasedFrom ? { releasedFrom } : {}),
+      },
       createdAt: occurredAt,
     });
     await order.save();
-    res.json({ status: order.status, updatedAt: order.updatedAt });
+    // Staff-submitted orders notify the customer once. SUBMITTED is terminal
+    // so this fires a single time; the upsert key guards replays. Silent
+    // when email is disabled (local dev / email-off envs).
+    if (status === "SUBMITTED" && env.EMAIL_ENABLED) {
+      await EmailOutbox.updateOne(
+        { _id: `submission-notification:${order._id.toHexString()}` },
+        {
+          $setOnInsert: {
+            orderId: order._id,
+            recipient: order.applicant.email,
+            template: "SUBMISSION_NOTIFICATION",
+            status: "PENDING",
+            attempts: 0,
+            nextAttemptAt: occurredAt,
+          },
+        },
+        { upsert: true },
+      );
+    }
+    res.json({
+      status: order.status,
+      substatus: order.substatus ?? null,
+      updatedAt: order.updatedAt,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Single completion PDF per order. Memory-held, 10 MB cap, replaced in full. */
+const pdfUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: ORDER_DOCUMENT_MAX_BYTES, files: 1 },
+});
+
+function pdfSingle(req: Request, res: Response, next: NextFunction): void {
+  pdfUpload.single("file")(req, res, (err: unknown) => {
+    if (!err) return next();
+    if (typeof err === "object" && err !== null && "code" in err) {
+      const code = (err as { code?: string }).code;
+      if (
+        code === "LIMIT_FILE_SIZE" ||
+        code === "LIMIT_FILE_COUNT" ||
+        code === "LIMIT_UNEXPECTED_FILE"
+      )
+        return next(new ApiError(422, "Upload a single PDF of 10 MB or less."));
+    }
+    return next(err);
+  });
+}
+
+async function loadRevealableOrder(id: string, actor: AuthUser) {
+  const order = await Order.findById(id);
+  if (!order) throw new ApiError(404, "Order not found");
+  if (!canReveal(order, actor))
+    throw new ApiError(403, "Only the assigned agent or a super-admin may access this order.");
+  return order;
+}
+
+/** Upload (or replace) the single completion PDF. Owner-agent or ADMIN only. */
+ordersRouter.post("/:id/document", requireAuth, pdfSingle, async (req, res, next) => {
+  try {
+    const id = z.string().min(1).parse(req.params.id);
+    const actor = (req as typeof req & { user: AuthUser }).user;
+    const order = await loadRevealableOrder(id, actor);
+    let validated: { name: string; size: number };
+    try {
+      validated = validateOrderDocument(req.file ?? {});
+    } catch (e) {
+      throw new ApiError(422, e instanceof Error ? e.message : "A PDF file is required.");
+    }
+    if (!req.file?.buffer || !(req.file.buffer instanceof Buffer))
+      throw new ApiError(422, "A PDF file is required.");
+    if (order.document?.fileId) await deleteOrderDocument(order.document.fileId);
+    const meta = await storeOrderDocument(id, req.file.buffer, validated.name, actor.sub);
+    order.set("document", {
+      fileId: meta.fileId,
+      name: meta.name,
+      size: meta.size,
+      uploadedBy: meta.uploadedBy,
+      uploadedAt: meta.uploadedAt,
+    });
+    order.auditEvents ??= [];
+    order.auditEvents.push({
+      actorId: actor.sub,
+      action: "document_uploaded",
+      metadata: { name: meta.name, size: meta.size },
+      createdAt: new Date(),
+    });
+    await order.save();
+    res.status(201).json({
+      document: {
+        name: meta.name,
+        size: meta.size,
+        uploadedBy: meta.uploadedBy,
+        uploadedAt: meta.uploadedAt,
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Download the completion PDF. Owner-agent or ADMIN only, audit-logged. */
+ordersRouter.get("/:id/document", requireAuth, async (req, res, next) => {
+  try {
+    const id = z.string().min(1).parse(req.params.id);
+    const actor = (req as typeof req & { user: AuthUser }).user;
+    const order = await loadRevealableOrder(id, actor);
+    const fileId = order.document?.fileId;
+    const name = order.document?.name || "document.pdf";
+    if (!fileId) throw new ApiError(404, "No document uploaded for this order.");
+    order.auditEvents ??= [];
+    order.auditEvents.push({
+      actorId: actor.sub,
+      action: "document_downloaded",
+      metadata: { name },
+      createdAt: new Date(),
+    });
+    await order.save();
+    res.setHeader("content-type", "application/pdf");
+    res.setHeader("content-disposition", `attachment; filename="${name.replace(/"/g, "")}"`);
+    const stream = openOrderDocument(fileId);
+    stream.once("error", () => {
+      if (!res.headersSent) next(new ApiError(404, "No document uploaded for this order."));
+      else res.destroy();
+    });
+    stream.pipe(res);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Delete the completion PDF. Owner-agent or ADMIN only. */
+ordersRouter.delete("/:id/document", requireAuth, async (req, res, next) => {
+  try {
+    const id = z.string().min(1).parse(req.params.id);
+    const actor = (req as typeof req & { user: AuthUser }).user;
+    const order = await loadRevealableOrder(id, actor);
+    if (!order.document?.fileId) throw new ApiError(404, "No document uploaded for this order.");
+    await deleteOrderDocument(order.document.fileId);
+    await Order.updateOne(
+      { _id: id },
+      {
+        $unset: { document: 1 },
+        $push: {
+          auditEvents: {
+            actorId: actor.sub,
+            action: "document_deleted",
+            createdAt: new Date(),
+          },
+        },
+      },
+    );
+    res.json({ ok: true });
   } catch (e) {
     next(e);
   }

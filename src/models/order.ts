@@ -104,7 +104,16 @@ const OrderSchema = new Schema(
     currency: { type: String, default: "usd" },
     status: {
       type: String,
-      enum: ["DRAFT", "AWAITING_PAYMENT", "PAID", "IN_REVIEW", "SUBMITTED", "CANCELLED"],
+      enum: [
+        "DRAFT",
+        "AWAITING_PAYMENT",
+        "PAID",
+        "IN_REVIEW",
+        "TO_CS",
+        "GTG",
+        "SUBMITTED",
+        "CANCELLED",
+      ],
       default: "AWAITING_PAYMENT",
       index: true,
     },
@@ -112,6 +121,27 @@ const OrderSchema = new Schema(
       type: String,
       enum: ["PENDING", "PAID", "FAILED", "REFUNDED"],
       default: "PENDING",
+    },
+    /**
+     * Optional MILES-parity reason picked when an order is parked To CS.
+     * Cleared on any other move; history survives in audit metadata.
+     */
+    substatus: { type: String, default: null },
+    /**
+     * Single completion PDF (GridFS `order_docs` bucket). Required from
+     * fulfillment before SUBMITTED; ADMIN bypasses the gate.
+     */
+    document: {
+      type: new Schema(
+        {
+          fileId: Schema.Types.ObjectId,
+          name: String,
+          size: Number,
+          uploadedBy: String,
+          uploadedAt: Date,
+        },
+        { _id: false },
+      ),
     },
     /** Fixed, public-safe milestone timestamps. Never stores staff notes or application data. */
     customerTimeline: {
@@ -137,6 +167,7 @@ const OrderSchema = new Schema(
 
 OrderSchema.index({ email: 1, publicNumber: 1 });
 OrderSchema.index({ status: 1, createdAt: -1 });
+OrderSchema.index({ "auditEvents.actorId": 1, "auditEvents.createdAt": -1 });
 
 export type OrderDoc = InferSchemaType<typeof OrderSchema>;
 export const Order = models.Order ?? model("Order", OrderSchema, "orders");

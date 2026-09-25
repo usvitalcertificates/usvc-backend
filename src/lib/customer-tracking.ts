@@ -47,9 +47,9 @@ export function publicTrackingStatus(order: TrackableOrder) {
     occurredAt: timeline[step.key] ?? updatedAt,
   }));
 
-  if (order.status === "CANCELLED") {
+  if (order.status === "CANCELLED" || isParkedStatus(order.status)) {
     return {
-      currentStatus: "Order Requires Support",
+      currentStatus: order.status === "CANCELLED" ? "Order Requires Support" : "Order Processing",
       timeline: entries,
       notice:
         "This order requires support assistance. Please contact support@usvitalcertificates.org.",
@@ -70,6 +70,8 @@ export function publicTrackingStatus(order: TrackableOrder) {
 
 export const STAFF_STATUS_TIMELINE_KEYS = {
   IN_REVIEW: "processingAt",
+  TO_CS: "processingAt",
+  GTG: "processingAt",
   SUBMITTED: "submittedToAgencyAt",
 } as const;
 
@@ -78,6 +80,41 @@ export const STAFF_STATUS_TRANSITIONS = {
   IN_REVIEW: "SUBMITTED",
 } as const;
 
+/**
+ * CS-lane transitions. Fulfillment sends a broken form To CS (note required);
+ * only CS/ADMIN may mark it GTG; fulfillment then resumes via IN_REVIEW.
+ * TO_CS → IN_REVIEW and GTG → SUBMITTED are intentionally absent.
+ */
+export const STAFF_PARK_TRANSITIONS = {
+  IN_REVIEW: ["TO_CS"],
+  TO_CS: ["GTG"],
+  GTG: ["IN_REVIEW"],
+} as const;
+
 export function isAllowedStaffStatusTransition(current: string, next: string): boolean {
-  return STAFF_STATUS_TRANSITIONS[current as keyof typeof STAFF_STATUS_TRANSITIONS] === next;
+  if (STAFF_STATUS_TRANSITIONS[current as keyof typeof STAFF_STATUS_TRANSITIONS] === next)
+    return true;
+  const parked = STAFF_PARK_TRANSITIONS[current as keyof typeof STAFF_PARK_TRANSITIONS];
+  return Array.isArray(parked) && (parked as readonly string[]).includes(next);
+}
+
+/** Sending To CS never advances the customer timeline and requires an internal note. */
+export function isExceptionStatus(status: string): boolean {
+  return status === "TO_CS";
+}
+
+/** Internal parked states (never leak detail to public tracking). */
+export function isParkedStatus(status: string): boolean {
+  return status === "TO_CS" || status === "GTG";
+}
+
+/**
+ * Queue sort weight for attention-first ordering: parked-for-CS first,
+ * then rush, then everything else (oldest wins within each band).
+ * Mirrored in the staff queue aggregation pipeline — keep the two in sync.
+ */
+export function attentionPriority(status: string, rush: boolean): number {
+  if (isParkedStatus(status)) return 0;
+  if (rush) return 1;
+  return 2;
 }
