@@ -50,7 +50,7 @@ function base(certificate: "BIRTH" | "DEATH" | "MARRIAGE" | "DIVORCE" = "BIRTH")
     },
     paymentCard: { number: "4111 1111 1111 1111", expiry: "12/30", securityCode: "123" },
     signature: "Jane Doe",
-    totalCents: 12500,
+    totalCents: 14900,
   };
 }
 
@@ -227,8 +227,8 @@ test("order document stores secrets only as ciphertext in confidentialData", () 
       processingPayment: true,
     },
     signature: "T R",
-    pricing: { serviceCents: 12500, rushCents: 0, totalCents: 12500 },
-    amountCents: 12500,
+    pricing: { serviceCents: 14900, rushCents: 0, totalCents: 14900 },
+    amountCents: 14900,
   });
   assert.equal(doc.validateSync(), undefined);
   assert.equal((doc as any).requestorSsn, undefined);
@@ -295,7 +295,7 @@ test("accepts 20 copies", () => {
     ...base("BIRTH"),
     ...SUBJECTS.BIRTH,
     copies: 20,
-    totalCents: 20 * 12500,
+    totalCents: 20 * 14900,
   });
   assert.equal(
     validateOrderSubmission(input).ok,
