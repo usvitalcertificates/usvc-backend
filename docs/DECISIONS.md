@@ -133,3 +133,8 @@ so audit history is never overwritten. Staff + order audit events merge in
 
 - Each order carries at most one completion PDF, stored in MongoDB GridFS (`order_docs` bucket) — Atlas-hosted like everything else, no new infrastructure (local disk is ephemeral on Render; S3 would need new credentials). Uploads are memory-held, capped at 10 MB, and verified by `%PDF-` magic bytes, not just extension or mimetype.
 - `POST/GET/DELETE /orders/:id/document` are owner-agent-or-ADMIN with `document_uploaded/downloaded/deleted` audit events. Fulfillment needs the PDF plus at least one order note on file before `SUBMITTED` (422 otherwise); ADMIN bypasses the gate and CS never submits, so neither is gated.
+
+## Locked 2026-09-25: OpenAI Ads server conversion
+
+- The browser pixel (`oaiq`, production hosts only) and the server Conversions API fire the same `order_created` independently; the server-generated `openAiEventId` persisted at order creation is the shared dedup key.
+- Verified-payment webhooks enqueue exactly one delivery per order (`openai_conversion_deliveries`, `$setOnInsert` idempotent) sent by a leased outbox worker with the server-held key. The payload carries only amount, currency, certificate, copies, and optional click/browser refs — never application, contact, payment, or Stripe data. Disabled by default (`OPENAI_CONVERSIONS_ENABLED=false`); enabling requires pixel ID, API key, and source URL (fail-fast env validation).
