@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const ANALYTICS_WORKFLOWS = ["all", "processing", "to_cs", "submitted"] as const;
+export const ANALYTICS_WORKFLOWS = ["all", "processing", "to_cs", "gtg", "submitted"] as const;
 
 export type AnalyticsWorkflow = (typeof ANALYTICS_WORKFLOWS)[number];
 
@@ -67,10 +67,11 @@ export function paginateAnalytics<T>(rows: T[], page: number, limit: number) {
   };
 }
 
-function eventKind(event: AnalyticsAuditEvent): "claimed" | "toCs" | "submitted" | null {
+function eventKind(event: AnalyticsAuditEvent): "claimed" | "toCs" | "gtg" | "submitted" | null {
   if (event.action === "order_claimed") return "claimed";
   if (event.action !== "fulfillment_status_updated") return null;
   if (event.metadata?.["status"] === "TO_CS") return "toCs";
+  if (event.metadata?.["status"] === "GTG") return "gtg";
   if (event.metadata?.["status"] === "SUBMITTED") return "submitted";
   return null;
 }
@@ -78,11 +79,12 @@ function eventKind(event: AnalyticsAuditEvent): "claimed" | "toCs" | "submitted"
 export function workflowMatches(
   status: string,
   workflow: AnalyticsWorkflow,
-  actions: Set<"claimed" | "toCs" | "submitted"> = new Set(),
+  actions: Set<"claimed" | "toCs" | "gtg" | "submitted"> = new Set(),
 ): boolean {
   if (workflow === "all") return true;
   if (workflow === "processing") return actions.has("claimed") && PROCESSING_STATUSES.has(status);
   if (workflow === "to_cs") return actions.has("toCs");
+  if (workflow === "gtg") return actions.has("gtg");
   return actions.has("submitted");
 }
 
@@ -95,25 +97,31 @@ export function summarizeStaffAnalytics(
 ) {
   const claimed = new Set<string>();
   const toCs = new Set<string>();
+  const gtg = new Set<string>();
   const submitted = new Set<string>();
   const rows: AnalyticsOrderRow[] = [];
 
   for (const order of orders) {
     const orderId = String(order._id);
     let latestActivityAt: Date | null = null;
-    const actions = new Set<"claimed" | "toCs" | "submitted">();
+    const actions = new Set<"claimed" | "toCs" | "gtg" | "submitted">();
     for (const event of order.auditEvents ?? []) {
       const at = event.createdAt;
       if (event.actorId !== staffId || !at || (from && at < from) || (to && at > to)) continue;
       const kind = eventKind(event);
       if (!kind) continue;
       actions.add(kind);
-      if (kind === "claimed") claimed.add(orderId);
-      if (kind === "toCs") toCs.add(orderId);
-      if (kind === "submitted") submitted.add(orderId);
       if (!latestActivityAt || at > latestActivityAt) latestActivityAt = at;
     }
     if (!latestActivityAt || !workflowMatches(order.status, workflow, actions)) continue;
+    // Metrics follow the same date + workflow filters as the rows, so the
+    // KPI cards always describe exactly what is listed below them.
+    for (const kind of actions) {
+      if (kind === "claimed") claimed.add(orderId);
+      if (kind === "toCs") toCs.add(orderId);
+      if (kind === "gtg") gtg.add(orderId);
+      if (kind === "submitted") submitted.add(orderId);
+    }
     rows.push({
       id: orderId,
       publicNumber: order.publicNumber,
@@ -128,11 +136,12 @@ export function summarizeStaffAnalytics(
   }
 
   rows.sort((a, b) => b.latestActivityAt.getTime() - a.latestActivityAt.getTime());
-  const handled = new Set([...claimed, ...toCs, ...submitted]);
+  const handled = new Set([...claimed, ...toCs, ...gtg, ...submitted]);
   return {
     metrics: {
       ownershipTaken: claimed.size,
       sentToCs: toCs.size,
+      markedGtg: gtg.size,
       submittedToAgency: submitted.size,
       totalFormsHandled: handled.size,
     },
