@@ -1,6 +1,6 @@
 # Current backend status
 
-Last updated: 2026-09-25 (Node.js 24 LTS; AES-256-GCM confidentialData; staff roles ADMIN/FULFILLMENT/CS; pricing gated to ADMIN+CS; audit-derived, date-filtered per-staff analytics; optional To-CS substatus; no shared API request cap).
+Last updated: 2026-09-25 (Node.js 24 LTS; AES-256-GCM confidentialData; staff roles ADMIN/FULFILLMENT/CS; pricing gated to ADMIN+CS; audit-derived, date-filtered per-staff analytics; optional To-CS substatus; FIFO queue sort; completion PDF; no shared API request cap).
 
 ## Implemented
 
@@ -35,7 +35,8 @@ Last updated: 2026-09-25 (Node.js 24 LTS; AES-256-GCM confidentialData; staff ro
 - Every authenticated staff member can access the same metrics for their own identity through `GET /staff/analytics`; the server derives the identity from the access token and never accepts another user ID.
 - Administration exposes a searchable order-centric activity index and sanitized per-order timelines. To-CS/submitted analytics filters use the same actor events as their KPI counts, so card and row totals stay aligned.
 - The fulfillment queue lists all paid orders to every role (masked rows, gated actions). Sending `TO_CS` auto-releases assignment so CS can claim; CS must own an order to correct it or mark `GTG` (ADMIN bypasses both); marking `GTG` drops ownership back to the pool so fulfillment claims and continues via `IN_REVIEW`. The `TO_CS` park accepts an optional substatus from the MILES-parity list (no 2nd/3rd Contact); it is stored on the order, echoed in audit metadata, cleared on any other move, and rejected anywhere else with a 422.
-- Queue responses derive `sentToCsAt` from the latest `fulfillment_status_updated` audit event with `TO_CS`; no raw audit events are returned.
+- Queue responses derive `sentToCsAt` from the latest `fulfillment_status_updated` audit event with `TO_CS`; no raw audit events are returned. Queues sort oldest-first by `createdAt` (first come, first served).
+- Each order holds a single completion PDF in GridFS (`order_docs`, 10 MB, PDF-only): `POST/GET/DELETE /orders/:id/document` for the owner-agent or ADMIN with upload/download/delete audit events. Fulfillment needs the PDF plus at least one order note on file before `SUBMITTED` (422 otherwise); ADMIN bypasses the gate.
 - The shared 100-requests-per-15-minutes API limiter has been removed so normal staff navigation is not throttled; sign-in, tracking, contact, and sensitive-data reveal limits remain active.
 
 ## Sensitive-data boundary

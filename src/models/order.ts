@@ -127,6 +127,22 @@ const OrderSchema = new Schema(
      * Cleared on any other move; history survives in audit metadata.
      */
     substatus: { type: String, default: null },
+    /**
+     * Single completion PDF (GridFS `order_docs` bucket). Required from
+     * fulfillment before SUBMITTED; ADMIN bypasses the gate.
+     */
+    document: {
+      type: new Schema(
+        {
+          fileId: Schema.Types.ObjectId,
+          name: String,
+          size: Number,
+          uploadedBy: String,
+          uploadedAt: Date,
+        },
+        { _id: false },
+      ),
+    },
     /** Fixed, public-safe milestone timestamps. Never stores staff notes or application data. */
     customerTimeline: {
       paymentSuccessfulAt: Date,
