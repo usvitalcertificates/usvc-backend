@@ -47,6 +47,22 @@ const orders: AnalyticsOrder[] = [
       },
     ],
   },
+  {
+    _id: "three",
+    publicNumber: "USVC-THREE",
+    certificate: "BIRTH",
+    stateCode: "CA",
+    status: "GTG",
+    auditEvents: [
+      { actorId: "agent-a", action: "order_claimed", createdAt: date("2026-09-06") },
+      {
+        actorId: "agent-a",
+        action: "fulfillment_status_updated",
+        metadata: { status: "GTG" },
+        createdAt: date("2026-09-07"),
+      },
+    ],
+  },
 ];
 
 test("analytics counts unique forms, attributes actors, and sorts latest activity", () => {
@@ -58,14 +74,15 @@ test("analytics counts unique forms, attributes actors, and sorts latest activit
     "all",
   );
   assert.deepEqual(result.metrics, {
-    ownershipTaken: 1,
+    ownershipTaken: 2,
     sentToCs: 1,
+    markedGtg: 1,
     submittedToAgency: 1,
-    totalFormsHandled: 2,
+    totalFormsHandled: 3,
   });
   assert.deepEqual(
     result.rows.map((row) => row.id),
-    ["two", "one"],
+    ["three", "two", "one"],
   );
 });
 
@@ -90,8 +107,10 @@ test("workflow groups only the supported operational statuses", () => {
   assert.equal(workflowMatches("IN_REVIEW", "processing", new Set(["claimed"])), true);
   assert.equal(workflowMatches("GTG", "processing", new Set(["claimed"])), true);
   assert.equal(workflowMatches("TO_CS", "to_cs", new Set(["toCs"])), true);
+  assert.equal(workflowMatches("GTG", "gtg", new Set(["gtg"])), true);
   assert.equal(workflowMatches("SUBMITTED", "submitted", new Set(["submitted"])), true);
   assert.equal(workflowMatches("TO_CS", "to_cs", new Set(["claimed"])), false);
+  assert.equal(workflowMatches("GTG", "gtg", new Set(["claimed"])), false);
   assert.equal(workflowMatches("SUBMITTED", "submitted", new Set(["claimed"])), false);
   assert.equal(workflowMatches("CANCELLED", "processing", new Set(["claimed"])), false);
 });
@@ -106,6 +125,27 @@ test("To-CS rows match the selected user's To-CS KPI attribution", () => {
   );
   assert.equal(result.metrics.sentToCs, 0);
   assert.equal(result.rows.length, 0);
+});
+
+test("GTG filter isolates marked orders and scopes every card to the rows", () => {
+  const result = summarizeStaffAnalytics(
+    orders,
+    "agent-a",
+    date("2026-09-01"),
+    date("2026-09-30"),
+    "gtg",
+  );
+  assert.deepEqual(result.metrics, {
+    ownershipTaken: 1,
+    sentToCs: 0,
+    markedGtg: 1,
+    submittedToAgency: 0,
+    totalFormsHandled: 1,
+  });
+  assert.deepEqual(
+    result.rows.map((row) => row.id),
+    ["three"],
+  );
 });
 
 test("analytics query validates dates, workflow, and pagination bounds", () => {

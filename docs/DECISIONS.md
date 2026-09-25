@@ -81,7 +81,7 @@ Pricing is calculated in integer cents on the server. Two-fee model (owner decis
 
 Invite-only: super-admin `POST /auth/invite` creates a pending STAFF account with
 a single-use setup token (sha256-hashed, 48h expiry); the member sets their own
-12+ char password via `POST /auth/setup`. Login is two steps: `POST /auth/login`
+8+ char password via `POST /auth/setup`. Login is two steps: `POST /auth/login`
 (email + password, 5-fail/15min lockout) returns a 10-minute MFA token, then
 `POST /auth/mfa/enroll|confirm` (first pairing, QR + manual key shown once) or
 `POST /auth/mfa/verify` (daily) issues 30m access + 7d rotating refresh JWTs.
@@ -138,3 +138,8 @@ so audit history is never overwritten. Staff + order audit events merge in
 
 - The browser pixel (`oaiq`, production hosts only) and the server Conversions API fire the same `order_created` independently; the server-generated `openAiEventId` persisted at order creation is the shared dedup key.
 - Verified-payment webhooks enqueue exactly one delivery per order (`openai_conversion_deliveries`, `$setOnInsert` idempotent) sent by a leased outbox worker with the server-held key. The payload carries only amount, currency, certificate, copies, and optional click/browser refs — never application, contact, payment, or Stripe data. Disabled by default (`OPENAI_CONVERSIONS_ENABLED=false`); enabling requires pixel ID, API key, and source URL (fail-fast env validation).
+
+## Locked 2026-09-25: staff password management
+
+- Self-service password change exists for ADMINs only (`POST /auth/password`: current verified, 8+ chars, every session revoked including the caller's). Other roles keep the ask-the-admin path.
+- Admin-issued recovery reuses the invite-token machinery instead of shared temp passwords: `POST /admin/staff/:id/password-reset` (active, non-self only) issues a fresh 48h setup link; `/auth/setup` completes it for active accounts with full session revoke and a distinct `password_reset_completed` audit event. Recovery re-pairs the authenticator (same as the setup flow) by design.
