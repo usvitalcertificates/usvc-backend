@@ -128,3 +128,8 @@ so audit history is never overwritten. Staff + order audit events merge in
 
 - Parking an order To CS accepts an optional `substatus` from the 26-value MILES-parity list in `src/lib/order-substatus.ts` ("2nd Contact"/"3rd Contact" excluded per owner — single-touch reasons only). The note stays compulsory; the substatus is never required.
 - The enum is validated at the API boundary (`staffStatusUpdateSchema`); any substatus on a non-`TO_CS` move is a 422. It is stored on the order (`substatus`, default null), echoed into the `fulfillment_status_updated` audit metadata, cleared on any other move, and returned by the status endpoint. The frontend mirrors the list; the backend enum is the source of truth.
+
+## Locked 2026-09-25: completion PDF
+
+- Each order carries at most one completion PDF, stored in MongoDB GridFS (`order_docs` bucket) — Atlas-hosted like everything else, no new infrastructure (local disk is ephemeral on Render; S3 would need new credentials). Uploads are memory-held, capped at 10 MB, and verified by `%PDF-` magic bytes, not just extension or mimetype.
+- `POST/GET/DELETE /orders/:id/document` are owner-agent-or-ADMIN with `document_uploaded/downloaded/deleted` audit events. Fulfillment must attach the PDF and write a completion note before `SUBMITTED` (422 otherwise); ADMIN bypasses the gate and CS never submits, so neither is gated.

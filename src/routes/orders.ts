@@ -1,4 +1,4 @@
-import { Router } from "express";
+import { Router, type NextFunction, type Request, type Response } from "express";
 import Stripe from "stripe";
 import { z } from "zod";
 import { env } from "../config/env.js";
@@ -24,6 +24,14 @@ import {
 } from "../lib/customer-tracking.js";
 import { staffStatusUpdateSchema } from "../lib/order-substatus.js";
 import rateLimit from "express-rate-limit";
+import multer from "multer";
+import {
+  deleteOrderDocument,
+  openOrderDocument,
+  ORDER_DOCUMENT_MAX_BYTES,
+  storeOrderDocument,
+  validateOrderDocument,
+} from "../lib/order-document.js";
 
 const stripe = new Stripe(env.STRIPE_SECRET_KEY);
 
@@ -460,6 +468,13 @@ ordersRouter.patch("/:id/status", requireAuth, async (req, res, next) => {
       throw new ApiError(422, "Order statuses must move forward one step at a time.");
     if (isExceptionStatus(status) && !note)
       throw new ApiError(422, "An internal note is required for To CS.");
+    // Completion package: fulfillment must attach the single PDF and write a
+    // note before SUBMITTED. ADMIN bypasses the gate; CS never submits.
+    if (status === "SUBMITTED" && actor.role !== "ADMIN") {
+      if (!order.document?.fileId)
+        throw new ApiError(422, "Upload the completion PDF before submitting.");
+      if (!note) throw new ApiError(422, "A completion note is required before submitting.");
+    }
 
     const occurredAt = new Date();
     const timelineKey = STAFF_STATUS_TIMELINE_KEYS[status];
@@ -513,6 +528,137 @@ ordersRouter.patch("/:id/status", requireAuth, async (req, res, next) => {
       substatus: order.substatus ?? null,
       updatedAt: order.updatedAt,
     });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Single completion PDF per order. Memory-held, 10 MB cap, replaced in full. */
+const pdfUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: ORDER_DOCUMENT_MAX_BYTES, files: 1 },
+});
+
+function pdfSingle(req: Request, res: Response, next: NextFunction): void {
+  pdfUpload.single("file")(req, res, (err: unknown) => {
+    if (!err) return next();
+    if (typeof err === "object" && err !== null && "code" in err) {
+      const code = (err as { code?: string }).code;
+      if (
+        code === "LIMIT_FILE_SIZE" ||
+        code === "LIMIT_FILE_COUNT" ||
+        code === "LIMIT_UNEXPECTED_FILE"
+      )
+        return next(new ApiError(422, "Upload a single PDF of 10 MB or less."));
+    }
+    return next(err);
+  });
+}
+
+async function loadRevealableOrder(id: string, actor: AuthUser) {
+  const order = await Order.findById(id);
+  if (!order) throw new ApiError(404, "Order not found");
+  if (!canReveal(order, actor))
+    throw new ApiError(403, "Only the assigned agent or a super-admin may access this order.");
+  return order;
+}
+
+/** Upload (or replace) the single completion PDF. Owner-agent or ADMIN only. */
+ordersRouter.post("/:id/document", requireAuth, pdfSingle, async (req, res, next) => {
+  try {
+    const id = z.string().min(1).parse(req.params.id);
+    const actor = (req as typeof req & { user: AuthUser }).user;
+    const order = await loadRevealableOrder(id, actor);
+    let validated: { name: string; size: number };
+    try {
+      validated = validateOrderDocument(req.file ?? {});
+    } catch (e) {
+      throw new ApiError(422, e instanceof Error ? e.message : "A PDF file is required.");
+    }
+    if (!req.file?.buffer || !(req.file.buffer instanceof Buffer))
+      throw new ApiError(422, "A PDF file is required.");
+    if (order.document?.fileId) await deleteOrderDocument(order.document.fileId);
+    const meta = await storeOrderDocument(id, req.file.buffer, validated.name, actor.sub);
+    order.set("document", {
+      fileId: meta.fileId,
+      name: meta.name,
+      size: meta.size,
+      uploadedBy: meta.uploadedBy,
+      uploadedAt: meta.uploadedAt,
+    });
+    order.auditEvents ??= [];
+    order.auditEvents.push({
+      actorId: actor.sub,
+      action: "document_uploaded",
+      metadata: { name: meta.name, size: meta.size },
+      createdAt: new Date(),
+    });
+    await order.save();
+    res.status(201).json({
+      document: {
+        name: meta.name,
+        size: meta.size,
+        uploadedBy: meta.uploadedBy,
+        uploadedAt: meta.uploadedAt,
+      },
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Download the completion PDF. Owner-agent or ADMIN only, audit-logged. */
+ordersRouter.get("/:id/document", requireAuth, async (req, res, next) => {
+  try {
+    const id = z.string().min(1).parse(req.params.id);
+    const actor = (req as typeof req & { user: AuthUser }).user;
+    const order = await loadRevealableOrder(id, actor);
+    const fileId = order.document?.fileId;
+    const name = order.document?.name || "document.pdf";
+    if (!fileId) throw new ApiError(404, "No document uploaded for this order.");
+    order.auditEvents ??= [];
+    order.auditEvents.push({
+      actorId: actor.sub,
+      action: "document_downloaded",
+      metadata: { name },
+      createdAt: new Date(),
+    });
+    await order.save();
+    res.setHeader("content-type", "application/pdf");
+    res.setHeader("content-disposition", `attachment; filename="${name.replace(/"/g, "")}"`);
+    const stream = openOrderDocument(fileId);
+    stream.once("error", () => {
+      if (!res.headersSent) next(new ApiError(404, "No document uploaded for this order."));
+      else res.destroy();
+    });
+    stream.pipe(res);
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Delete the completion PDF. Owner-agent or ADMIN only. */
+ordersRouter.delete("/:id/document", requireAuth, async (req, res, next) => {
+  try {
+    const id = z.string().min(1).parse(req.params.id);
+    const actor = (req as typeof req & { user: AuthUser }).user;
+    const order = await loadRevealableOrder(id, actor);
+    if (!order.document?.fileId) throw new ApiError(404, "No document uploaded for this order.");
+    await deleteOrderDocument(order.document.fileId);
+    await Order.updateOne(
+      { _id: id },
+      {
+        $unset: { document: 1 },
+        $push: {
+          auditEvents: {
+            actorId: actor.sub,
+            action: "document_deleted",
+            createdAt: new Date(),
+          },
+        },
+      },
+    );
+    res.json({ ok: true });
   } catch (e) {
     next(e);
   }
