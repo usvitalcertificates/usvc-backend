@@ -90,10 +90,13 @@ const OrderSchema = new Schema(
       keyId: { type: String, default: "v1" },
       encryptedAt: { type: Date },
     },
-    /** Pseudonymous GA4 attribution only; never include application details. */
+    /** Pseudonymous measurement attribution only; never include application details. */
     analytics: {
       clientId: { type: String, default: "" },
       sessionId: { type: String, default: "" },
+      openAiEventId: { type: String, default: "" },
+      openAiOppref: { type: String, default: "" },
+      openAiObref: { type: String, default: "" },
     },
     pricing: {
       serviceCents: { type: Number, required: true },

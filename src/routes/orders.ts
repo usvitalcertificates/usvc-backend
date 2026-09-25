@@ -1,4 +1,5 @@
 import { Router, type NextFunction, type Request, type Response } from "express";
+import { randomUUID } from "node:crypto";
 import Stripe from "stripe";
 import { z } from "zod";
 import { env } from "../config/env.js";
@@ -116,6 +117,11 @@ ordersRouter.post("/", async (req, res, next) => {
           analytics: {
             clientId: input.analytics?.clientId ?? "",
             sessionId: input.analytics?.sessionId ?? "",
+            // Server-side dedup key for the OpenAI Conversions API; the
+            // browser pixel fires the same order_created independently.
+            openAiEventId: randomUUID(),
+            openAiOppref: input.analytics?.openAiOppref ?? "",
+            openAiObref: input.analytics?.openAiObref ?? "",
           },
           pricing: { ...pricing, chargedNowCents: pricing.totalCents },
           amountCents: pricing.totalCents,

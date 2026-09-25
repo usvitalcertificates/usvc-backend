@@ -44,6 +44,16 @@ const schema = z
       .regex(/^G-[A-Z0-9]+$/)
       .optional(),
     GA4_MEASUREMENT_PROTOCOL_API_SECRET: z.string().min(1).optional(),
+    OPENAI_CONVERSIONS_ENABLED: z
+      .enum(["true", "false"])
+      .default("false")
+      .transform((value) => value === "true"),
+    OPENAI_ADS_PIXEL_ID: z
+      .string()
+      .regex(/^[A-Za-z0-9_-]+$/)
+      .optional(),
+    OPENAI_CONVERSIONS_API_KEY: z.string().min(1).optional(),
+    OPENAI_CONVERSION_SOURCE_URL: z.string().url().optional(),
   })
   .superRefine((value, context) => {
     if (value.EMAIL_ENABLED) {
@@ -71,6 +81,19 @@ const schema = z
         path: ["GA_MEASUREMENT_ID"],
         message:
           "GA_MEASUREMENT_ID and GA4_MEASUREMENT_PROTOCOL_API_SECRET are required when ANALYTICS_ENABLED=true",
+      });
+    }
+    if (
+      value.OPENAI_CONVERSIONS_ENABLED &&
+      (!value.OPENAI_ADS_PIXEL_ID ||
+        !value.OPENAI_CONVERSIONS_API_KEY ||
+        !value.OPENAI_CONVERSION_SOURCE_URL)
+    ) {
+      context.addIssue({
+        code: "custom",
+        path: ["OPENAI_ADS_PIXEL_ID"],
+        message:
+          "OPENAI_ADS_PIXEL_ID, OPENAI_CONVERSIONS_API_KEY, and OPENAI_CONVERSION_SOURCE_URL are required when OPENAI_CONVERSIONS_ENABLED=true",
       });
     }
   });
