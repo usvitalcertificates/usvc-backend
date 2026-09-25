@@ -18,9 +18,7 @@ test("invitation email contains the link without personalization header", () => 
   assert.ok(!email.html.includes("<h1"));
   assert.ok(!email.html.includes("You've been invited"));
   assert.ok(!email.html.includes("authorized staff only"));
-  assert.ok(
-    email.html.includes("A USVC super-admin invited you to the internal Fulfillment Center."),
-  );
+  assert.ok(email.html.includes("A USVC Admin invited you to the internal Fulfillment Center."));
   assert.ok(email.html.includes("48 hours"));
   assert.ok(!email.html.includes("<img")); // no remote images: inbox-safe by construction
   assert.ok(email.text.includes("https://flow.example/auth?setup=t"));
