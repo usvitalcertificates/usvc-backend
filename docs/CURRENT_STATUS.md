@@ -1,6 +1,6 @@
 # Current backend status
 
-Last updated: 2026-09-24 (Node.js 24 LTS; AES-256-GCM confidentialData; staff roles ADMIN/FULFILLMENT/CS; pricing gated to ADMIN+CS; CS correction flow with auditable handoff age; no shared API request cap).
+Last updated: 2026-09-25 (Node.js 24 LTS; AES-256-GCM confidentialData; staff roles ADMIN/FULFILLMENT/CS; pricing gated to ADMIN+CS; audit-derived, date-filtered per-staff analytics; no shared API request cap).
 
 ## Implemented
 
@@ -31,6 +31,9 @@ Last updated: 2026-09-24 (Node.js 24 LTS; AES-256-GCM confidentialData; staff ro
 - Fee, report, and attendance endpoints (Phase 3).
 - Invitation emails send via the Resend outbox when `EMAIL_ENABLED=true`; email-disabled envs return the setup token for manual setup. `STAFF_INVITATION` has no H1 personalization (setup-link + 48h steps only); `SUBMISSION_NOTIFICATION` subject is `Your order has been submitted — {publicNumber}` with no tracking link/footer and `vary by state to state` wording.
 - Staff roles are `ADMIN`, `FULFILLMENT`, and `CS` (legacy `STAFF` auto-migrates to `FULFILLMENT` with session revoke on deploy). Invites carry a role (default `FULFILLMENT`); ADMINs change roles via `PATCH /admin/staff/:id` (last-ADMIN guard). Order pricing is returned only to `ADMIN`/`CS`. CS claims an order, corrects the full form via `PATCH /staff/orders/:id/correction` (EDIT-only, audited `form_corrected`), and marks `TO_CS` → `GTG` (note optional).
+- `GET /admin/staff/:id/analytics` reports unique forms claimed, sent to CS, submitted, and handled by one staff member for an inclusive date range. Results are filterable by current workflow and return only safe order-list metadata.
+- Every authenticated staff member can access the same metrics for their own identity through `GET /staff/analytics`; the server derives the identity from the access token and never accepts another user ID.
+- Administration exposes a searchable order-centric activity index and sanitized per-order timelines. To-CS/submitted analytics filters use the same actor events as their KPI counts, so card and row totals stay aligned.
 - The fulfillment queue lists all paid orders to every role (masked rows, gated actions). Sending `TO_CS` auto-releases assignment so CS can claim; CS must own an order to correct it or mark `GTG` (ADMIN bypasses both); marking `GTG` drops ownership back to the pool so fulfillment claims and continues via `IN_REVIEW`.
 - Queue responses derive `sentToCsAt` from the latest `fulfillment_status_updated` audit event with `TO_CS`; no raw audit events are returned.
 - The shared 100-requests-per-15-minutes API limiter has been removed so normal staff navigation is not throttled; sign-in, tracking, contact, and sensitive-data reveal limits remain active.

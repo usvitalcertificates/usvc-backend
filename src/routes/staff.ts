@@ -8,6 +8,13 @@ import { encryptSensitive } from "../lib/crypto.js";
 import { env } from "../config/env.js";
 import { latestSentToCsAt, queueAssignmentMatch } from "../lib/staff-queue.js";
 import {
+  adminAnalyticsQuerySchema,
+  analyticsDateRange,
+  paginateAnalytics,
+  summarizeStaffAnalytics,
+  type AnalyticsOrder,
+} from "../lib/admin-staff-analytics.js";
+import {
   isPlausibleSsn,
   validateCorrection,
   type CorrectionCandidate,
@@ -60,6 +67,64 @@ const orderEvent = (actorId: string, action: string, metadata?: Record<string, u
   action,
   metadata,
   createdAt: new Date(),
+});
+
+/** Audit-derived analytics for the currently authenticated staff member only. */
+staffRouter.get("/analytics", async (req, res, next) => {
+  try {
+    const query = adminAnalyticsQuerySchema.parse(req.query);
+    const user = reqUser(req);
+    const member = await StaffUser.findById(user.sub, {
+      fullName: 1,
+      email: 1,
+      role: 1,
+      accountStatus: 1,
+    }).lean();
+    if (!member) throw new ApiError(404, "Staff account not found");
+    const { from, to } = analyticsDateRange(query.from, query.to);
+    const eventMatch: Record<string, unknown> = { actorId: user.sub };
+    if (from || to) {
+      eventMatch["createdAt"] = {
+        ...(from ? { $gte: from } : {}),
+        ...(to ? { $lte: to } : {}),
+      };
+    }
+    const orders = (await Order.find(
+      { auditEvents: { $elemMatch: eventMatch } },
+      {
+        publicNumber: 1,
+        certificate: 1,
+        stateCode: 1,
+        "geo.county": 1,
+        rush: 1,
+        status: 1,
+        assignedTo: 1,
+        auditEvents: 1,
+      },
+    ).lean()) as unknown as AnalyticsOrder[];
+    const analytics = summarizeStaffAnalytics(orders, user.sub, from, to, query.status);
+    const paged = paginateAnalytics(analytics.rows, query.page, query.limit);
+    res.json({
+      staff: {
+        id: String(member._id),
+        fullName: member.fullName || "",
+        email: member.email,
+        role: member.role,
+        accountStatus: member.accountStatus,
+      },
+      range: { from: query.from ?? null, to: query.to ?? null },
+      metrics: analytics.metrics,
+      orders: paged.rows.map(({ assignedTo, ...order }) => ({
+        ...order,
+        canOpen: assignedTo === user.sub || user.role === "ADMIN",
+      })),
+      total: paged.total,
+      page: paged.page,
+      pages: paged.pages,
+    });
+  } catch (e) {
+    next(e);
+  }
 });
 
 /**

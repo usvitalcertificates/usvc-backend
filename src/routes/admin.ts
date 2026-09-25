@@ -7,6 +7,13 @@ import {
   type AuthUser,
 } from "../middleware/auth.js";
 import { ApiError } from "../middleware/errors.js";
+import {
+  adminAnalyticsQuerySchema,
+  analyticsDateRange,
+  paginateAnalytics,
+  summarizeStaffAnalytics,
+  type AnalyticsOrder,
+} from "../lib/admin-staff-analytics.js";
 import { Order } from "../models/order.js";
 import { StaffUser } from "../models/staff.js";
 
@@ -72,6 +79,66 @@ adminRouter.get("/staff", async (_req, res, next) => {
   }
 });
 
+/** Safe, audit-derived per-agent form analytics. */
+adminRouter.get("/staff/:id/analytics", async (req, res, next) => {
+  try {
+    const id = z
+      .string()
+      .regex(/^[0-9a-fA-F]{24}$/)
+      .parse(req.params.id);
+    const query = adminAnalyticsQuerySchema.parse(req.query);
+    const member = await StaffUser.findById(id, {
+      fullName: 1,
+      email: 1,
+      role: 1,
+      accountStatus: 1,
+    }).lean();
+    if (!member) throw new ApiError(404, "Staff account not found");
+
+    const { from, to } = analyticsDateRange(query.from, query.to);
+    const eventMatch: Record<string, unknown> = { actorId: id };
+    if (from || to) {
+      eventMatch["createdAt"] = {
+        ...(from ? { $gte: from } : {}),
+        ...(to ? { $lte: to } : {}),
+      };
+    }
+    const orders = (await Order.find(
+      { auditEvents: { $elemMatch: eventMatch } },
+      {
+        publicNumber: 1,
+        certificate: 1,
+        stateCode: 1,
+        "geo.county": 1,
+        rush: 1,
+        status: 1,
+        assignedTo: 1,
+        auditEvents: 1,
+      },
+    ).lean()) as unknown as AnalyticsOrder[];
+    const analytics = summarizeStaffAnalytics(orders, id, from, to, query.status);
+    const paged = paginateAnalytics(analytics.rows, query.page, query.limit);
+
+    res.json({
+      staff: {
+        id: String(member._id),
+        fullName: member.fullName || "",
+        email: member.email,
+        role: member.role,
+        accountStatus: member.accountStatus,
+      },
+      range: { from: query.from ?? null, to: query.to ?? null },
+      metrics: analytics.metrics,
+      orders: paged.rows.map(({ assignedTo: _assignedTo, ...order }) => order),
+      total: paged.total,
+      page: paged.page,
+      pages: paged.pages,
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
 adminRouter.patch("/staff/:id", async (req, res, next) => {
   try {
     const id = z.string().min(1).parse(req.params.id);
@@ -122,6 +189,7 @@ adminRouter.post("/staff/:id/revoke", async (req, res, next) => {
   try {
     const id = z.string().min(1).parse(req.params.id);
     const admin = (req as typeof req & { user: AuthUser }).user;
+    if (id === admin.sub) throw new ApiError(400, "You cannot revoke your own session here.");
     const member = await StaffUser.findById(id).select("+refreshTokenHash");
     if (!member) throw new ApiError(404, "Staff account not found");
     member.sessionsRevokedAt = new Date();
@@ -143,6 +211,7 @@ adminRouter.post("/staff/:id/mfa-reset", async (req, res, next) => {
   try {
     const id = z.string().min(1).parse(req.params.id);
     const admin = (req as typeof req & { user: AuthUser }).user;
+    if (id === admin.sub) throw new ApiError(400, "You cannot reset your own 2-step here.");
     const member = await StaffUser.findById(id).select("+mfaSecret +refreshTokenHash");
     if (!member) throw new ApiError(404, "Staff account not found");
     member.mfaEnabled = false;
@@ -188,6 +257,21 @@ interface OrderWithAudit {
   publicNumber: string;
   auditEvents?: AuditEventLean[];
 }
+
+interface AdminOrderActivityLean extends OrderWithAudit {
+  _id: unknown;
+  certificate: string;
+  stateCode: string;
+  geo?: { county?: string };
+  rush?: boolean;
+  status: string;
+}
+
+interface StaffActorLean {
+  _id: unknown;
+  fullName?: string;
+  email: string;
+}
 /** Per-agent workload: active vs completed orders. */
 adminRouter.get("/workload", async (_req, res, next) => {
   try {
@@ -211,6 +295,123 @@ adminRouter.get("/workload", async (_req, res, next) => {
         active: row.active,
         completed: row.completed,
       })),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Paginated order-centric audit index for the Administration dashboard. */
+adminRouter.get("/order-activity", async (req, res, next) => {
+  try {
+    const query = z
+      .object({
+        search: z.string().trim().max(80).default(""),
+        page: z.coerce.number().int().min(1).default(1),
+        limit: z.coerce.number().int().min(1).max(100).default(20),
+      })
+      .parse(req.query);
+    const escaped = query.search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const match: Record<string, unknown> = { "auditEvents.0": { $exists: true } };
+    if (escaped) match["publicNumber"] = { $regex: escaped, $options: "i" };
+    const [rawOrders, total] = await Promise.all([
+      Order.find(match, {
+        publicNumber: 1,
+        certificate: 1,
+        stateCode: 1,
+        "geo.county": 1,
+        rush: 1,
+        status: 1,
+        auditEvents: 1,
+      })
+        .sort({ updatedAt: -1 })
+        .skip((query.page - 1) * query.limit)
+        .limit(query.limit)
+        .lean(),
+      Order.countDocuments(match),
+    ]);
+    const orders = rawOrders as unknown as AdminOrderActivityLean[];
+    res.json({
+      orders: orders.map((order) => {
+        const events = order.auditEvents ?? [];
+        const latest = events.reduce<Date | null>((value, event) => {
+          const at = event.createdAt;
+          return at && (!value || at > value) ? at : value;
+        }, null);
+        return {
+          id: String(order._id),
+          publicNumber: order.publicNumber,
+          certificate: order.certificate,
+          stateCode: order.stateCode,
+          county: order.geo?.county ?? "",
+          rush: order.rush,
+          status: order.status,
+          activityCount: events.length,
+          latestActivityAt: latest,
+        };
+      }),
+      total,
+      page: query.page,
+      pages: Math.max(1, Math.ceil(total / query.limit)),
+    });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Complete safe activity timeline for one order. */
+adminRouter.get("/order-activity/:id", async (req, res, next) => {
+  try {
+    const id = z
+      .string()
+      .regex(/^[0-9a-fA-F]{24}$/)
+      .parse(req.params.id);
+    const order = (await Order.findById(id, {
+      publicNumber: 1,
+      certificate: 1,
+      stateCode: 1,
+      "geo.county": 1,
+      rush: 1,
+      status: 1,
+      auditEvents: 1,
+    }).lean()) as unknown as AdminOrderActivityLean | null;
+    if (!order) throw new ApiError(404, "Order not found");
+    const actorIds = [
+      ...new Set((order.auditEvents ?? []).map((event) => event.actorId).filter(Boolean)),
+    ];
+    const actors = (await StaffUser.find(
+      { _id: { $in: actorIds } },
+      { fullName: 1, email: 1 },
+    ).lean()) as unknown as StaffActorLean[];
+    const actorById = new Map(
+      actors.map((actor) => [
+        String(actor._id),
+        { fullName: actor.fullName || "", email: actor.email },
+      ]),
+    );
+    res.json({
+      order: {
+        id: String(order._id),
+        publicNumber: order.publicNumber,
+        certificate: order.certificate,
+        stateCode: order.stateCode,
+        county: order.geo?.county ?? "",
+        rush: order.rush,
+        status: order.status,
+      },
+      activity: [...(order.auditEvents ?? [])]
+        .sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0))
+        .map((event) => {
+          const actor = event.actorId ? actorById.get(event.actorId) : undefined;
+          const metadata = event.metadata as Record<string, unknown> | undefined;
+          return {
+            at: event.createdAt,
+            action: event.action,
+            actorName: actor?.fullName || actor?.email || "System",
+            actorEmail: actor?.email ?? null,
+            detail: metadata ? { status: metadata["status"], field: metadata["field"] } : undefined,
+          };
+        }),
     });
   } catch (e) {
     next(e);
