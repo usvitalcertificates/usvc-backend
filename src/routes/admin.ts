@@ -16,6 +16,9 @@ import {
 } from "../lib/admin-staff-analytics.js";
 import { Order } from "../models/order.js";
 import { StaffUser } from "../models/staff.js";
+import { EmailOutbox } from "../models/email-outbox.js";
+import { env } from "../config/env.js";
+import { INVITE_TTL_MS, newInviteToken } from "../lib/staff-auth.js";
 
 export const adminRouter = Router();
 adminRouter.use(requireAuth, requireActiveStaff, requireAdmin);
@@ -272,6 +275,42 @@ interface StaffActorLean {
   fullName?: string;
   email: string;
 }
+/**
+ * Password recovery for active staff. Issues a fresh single-use 48h setup
+ * token (the invite machinery, reused — never a shared temp password).
+ * Self-resets are blocked here; ADMINs change their own via Settings.
+ * Pending accounts use invite re-send instead.
+ */
+adminRouter.post("/staff/:id/password-reset", async (req, res, next) => {
+  try {
+    const id = z.string().min(1).parse(req.params.id);
+    const admin = (req as typeof req & { user: AuthUser }).user;
+    if (id === admin.sub)
+      throw new ApiError(400, "You cannot reset your own password here. Use Settings.");
+    const user = await StaffUser.findById(id).select("+inviteTokenHash");
+    if (!user || user.accountStatus !== "active")
+      throw new ApiError(404, "Password reset is available for active accounts only.");
+    const { token, tokenHash } = newInviteToken();
+    user.inviteTokenHash = tokenHash;
+    user.inviteExpiresAt = new Date(Date.now() + INVITE_TTL_MS);
+    user.auditEvents ??= [];
+    user.auditEvents.push(staffEvent(admin.sub, "password_reset_issued", { email: user.email }));
+    await user.save();
+    if (env.EMAIL_ENABLED) {
+      await EmailOutbox.create({
+        _id: `staff-password-reset:${user._id.toHexString()}:${Date.now()}`,
+        staffUserId: user._id,
+        setupToken: token,
+        recipient: user.email,
+        template: "STAFF_INVITATION",
+      });
+      return res.json({ ok: true, emailed: true });
+    }
+    res.json({ ok: true, setupToken: token });
+  } catch (e) {
+    next(e);
+  }
+});
 /** Per-agent workload: active vs completed orders. */
 adminRouter.get("/workload", async (_req, res, next) => {
   try {

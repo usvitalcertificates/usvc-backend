@@ -30,7 +30,7 @@ import {
   verifyTotpCode,
 } from "../lib/staff-auth.js";
 
-const credentials = z.object({ email: z.string().email(), password: z.string().min(12) });
+const credentials = z.object({ email: z.string().email(), password: z.string().min(8) });
 const mfaCode = z.object({ mfaToken: z.string().min(1), code: z.string().min(6).max(12) });
 
 const authLimiter = rateLimit({
@@ -321,31 +321,86 @@ authRouter.post(
   },
 );
 
-/** Invited member sets their own password. Credentials are never shared. */
+/** Invited member sets their own password. Credentials are never shared.
+ *  Also completes admin-issued password resets for active accounts. */
 authRouter.post("/setup", authLimiter, async (req, res, next) => {
   try {
     const { token, password } = z
-      .object({ token: z.string().min(1), password: z.string().min(12).max(200) })
+      .object({ token: z.string().min(1), password: z.string().min(8).max(200) })
       .parse(req.body);
     const user = await StaffUser.findOne({ inviteTokenHash: hashInviteToken(token) }).select(
       "+inviteTokenHash",
     );
     if (
       !user ||
-      user.accountStatus !== "pending" ||
+      (user.accountStatus !== "pending" && user.accountStatus !== "active") ||
       !user.inviteExpiresAt ||
       user.inviteExpiresAt.getTime() < Date.now()
     )
       throw new ApiError(400, "This invitation link is invalid or has expired.");
+    const isReset = user.accountStatus === "active";
     user.passwordHash = await argon2.hash(password);
-    user.accountStatus = "active";
     user.inviteTokenHash = undefined;
     user.inviteExpiresAt = undefined;
+    if (!isReset) user.accountStatus = "active";
+    if (isReset) {
+      // A reset secret must kill every session issued under the old password.
+      user.sessionsRevokedAt = new Date();
+      user.refreshTokenHash = undefined;
+      user.failedLoginAttempts = 0;
+      user.lockedUntil = undefined;
+    }
     user.auditEvents ??= [];
-    user.auditEvents.push(staffEvent(user._id.toHexString(), "invitation_accepted"));
+    user.auditEvents.push(
+      staffEvent(
+        user._id.toHexString(),
+        isReset ? "password_reset_completed" : "invitation_accepted",
+      ),
+    );
     await user.save();
     res.json({ ok: true, mfaToken: signMfaToken(user._id.toHexString()) });
   } catch (e) {
     next(e);
   }
 });
+
+/**
+ * Signed-in ADMIN changes their own password. Verifies the current password,
+ * revokes every session including this one (sign in again), and audits.
+ * Other roles have no self-service path by design.
+ */
+authRouter.post(
+  "/password",
+  authLimiter,
+  requireAuth,
+  requireActiveStaff,
+  requireAdmin,
+  async (req, res, next) => {
+    try {
+      const { currentPassword, newPassword } = z
+        .object({
+          currentPassword: z.string().min(1).max(200),
+          newPassword: z.string().min(8).max(200),
+        })
+        .parse(req.body);
+      if (currentPassword === newPassword)
+        throw new ApiError(422, "The new password must be different.");
+      const actor = (req as typeof req & { user: AuthUser }).user;
+      const user = await StaffUser.findById(actor.sub).select("+passwordHash");
+      if (!user) throw new ApiError(404, "Staff account not found");
+      if (!(await argon2.verify(user.passwordHash, currentPassword)))
+        throw new ApiError(403, "The current password is incorrect.");
+      user.passwordHash = await argon2.hash(newPassword);
+      user.sessionsRevokedAt = new Date();
+      user.refreshTokenHash = undefined;
+      user.failedLoginAttempts = 0;
+      user.lockedUntil = undefined;
+      user.auditEvents ??= [];
+      user.auditEvents.push(staffEvent(actor.sub, "password_changed"));
+      await user.save();
+      res.json({ ok: true });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
