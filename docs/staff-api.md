@@ -13,12 +13,12 @@
 - `GET /staff/orders?search&status&certificate&rushOnly&assigned=mine|unassigned|all&openOnly&attentionFirst&page` — all roles see all paid orders (masked rows); fixed `limit=25` (no `limit` param); FIFO `createdAt`, attention-first optional. Auth endpoints share a 20/15min limiter.
 - `GET /staff/analytics` — self only (ID from token; date/workflow/pagination params).
 - `POST /staff/orders/:id/claim` — atomic `findOneAndUpdate {_id, assignedTo: null, paymentStatus: "PAID"}` (409 if taken). `POST .../release` (owner/ADMIN). `POST .../reassign {staffId}` (ADMIN-only, active agent).
-- `GET /staff/orders/:id` — owner-or-ADMIN (CS opens owned like fulfillment); SSN/card `*********`; pricing + `amountCents` only to ADMIN/CS.
+- `GET /staff/orders/:id` — owner-or-ADMIN (CS opens owned like fulfillment); sensitive fields masked; pricing + `amountCents` only to ADMIN/CS.
 - `POST /staff/orders/:id/notes {text 1–2000}` — owner/ADMIN, internal only.
-- `PATCH /staff/orders/:id/correction` — CS-owner or ADMIN, EDIT-only full-form fix; blocked on `SUBMITTED`/`CANCELLED`; copies/rush/certificate/state/pricing are locked (omitted, not validated); validated like new submission; 422 `{message, errors}`; SSN/card re-encrypted, audited by field name only. CS must claim first.
+- `PATCH /staff/orders/:id/correction` — CS-owner or ADMIN, EDIT-only full-form fix; blocked on `SUBMITTED`/`CANCELLED`; copies/rush/certificate/state/pricing are locked (omitted, not validated); validated like new submission; 422 `{message, errors}`; audited by field name only. CS must claim first.
 - `PATCH /orders/:id/status` — `PAID→IN_REVIEW→SUBMITTED` + `IN_REVIEW→TO_CS` (note required, optional substatus, auto-releases) + `TO_CS→GTG` (CS-owner/ADMIN, note optional, clears substatus, drops ownership) → `GTG→IN_REVIEW` (owner/ADMIN). Paid only. `SUBMITTED` queues one `SUBMISSION_NOTIFICATION` (email-enabled) and needs PDF + ≥1 note for non-ADMIN (a CS owner with both can also submit — current behavior).
 - Documents (owner/ADMIN, single GridFS PDF in `order_docs` bucket, 10MB, `%PDF-` magic bytes): `POST /orders/:id/document` (upload/replace, deletes old chunks), `GET` (streams as attachment with `content-disposition`, audited), `DELETE` (audited).
-- `POST /orders/:id/reveal {field: ssn|card, reason}` — assigned-or-ADMIN, rate-limited 10/15min per IP, returns plaintext once, audited. `GET /orders/:id/audit` — owner/ADMIN, sanitized events only.
+- Sensitive-data endpoints (assigned-or-ADMIN, rate-limited, audited; handling policy TBD — see `fulfillment.md`). `GET /orders/:id/audit` — owner/ADMIN, sanitized events only.
 
 ## Admin (`/admin`)
 

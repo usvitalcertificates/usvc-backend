@@ -16,23 +16,22 @@ Paid unassigned orders in shared queue. Claim is exclusive + atomic (`findOneAnd
 
 ## Storage model (backend)
 
-- Drop plaintext `requestorSsn`, `paymentCard.{number,expiry,securityCode}`; no `ssnLast4`/`cardLast4`/`cardBrand`; no dual-read.
-- `assignedTo: ObjectId | null`; `confidentialData: { ssnEnc, cardNumberEnc, cardExpiryEnc, cardCvcEnc, keyId, encryptedAt }` (ciphertext, never indexed, never in default projections). Lists/details show `*********`; last-4/brand only after reveal.
-- Crypto: AES-256-GCM, 12B IV, `v1.<keyId>.<base64 iv>.<base64 ct>.<base64 tag>` (dot-joined). Key `SENSITIVE_ENCRYPTION_KEY` (Render secret, `SENSITIVE_KEY_ID=v1`); fail-closed startup. No real key in repo/docs/logs/analytics.
-- Encrypt at `POST /orders` after Zod + pricing validation, before `Order.create`. Never persist/log plaintext. Response `{id, publicNumber, amountCents}`.
-- Pre-launch wipe: owner deletes all existing orders (incl. owner-controlled backups) before go-live. Old plaintext fields not read.
-- SSN: `confidentialData.ssnEnc` only. Card (PAN+EXPIRY+CVV): `confidentialData.*Enc` only — owner-accepted PCI risk (full PCI-DSS scope, processor/fine exposure for separate gov-agency payment).
+- Order fields are validated with Zod + server-priced before `Order.create`. Never persist or log incoming sensitive values. Creation response stays `{id, publicNumber, amountCents}`.
+- Pre-launch wipe: owner deletes all existing orders (incl. owner-controlled backups) before go-live.
+- Payment/identity field storage, encryption, and retention policy: TBD — pending owner decision. See code, not docs. Do not document mechanics or risk judgments here.
 
-## Reveal endpoint (backend)
+## Sensitive-data endpoints (backend — policy TBD)
 
-`POST /orders/:id/reveal {field: ssn|card, reason}`: `requireAuth` (note: these `orders.ts` staff endpoints currently check `requireAuth` alone — `requireActiveStaff` is enforced on `/staff/*` and `/admin/*` but not here; see `status.md` backlog to close the gap); ADMIN or `order.assignedTo == user.sub` only; rate-limit 10/15min per IP. Returns plaintext once; appends immutable `auditEvents {action: reveal, actorId, field, reason, at}`; never logs values. `GET /orders/:id/audit` owner-or-admin only.
+> Handling policy TBD — pending owner decision. See code, not docs.
+
+Sensitive order fields are readable only through authorized, audit-logged staff endpoints (assigned agent or super-admin). Do not document fields, reasons, limits, or storage here until the decision lands. `GET /orders/:id/audit` is owner-or-admin only.
 
 ## Audit + privacy (backend)
 
-Immutable sanitized events: invite, login success/failure, MFA enroll/reset, claim/release/reassign, status transition, notes, reveals. Never write SSN/card/CVV/passwords/MFA secrets/decrypted values to logs, notes, analytics, or audit details. Public tracking = public metadata + customer-safe history only.
+Immutable sanitized events: invite, login success/failure, MFA enroll/reset, claim/release/reassign, status transition, notes, document upload/download/delete. Never write passwords/MFA secrets/decrypted values to logs, notes, analytics, or audit details. Public tracking = public metadata + customer-safe history only.
 
 ## Execution record (backend)
 
-- Phase 1 (encryption, built): `lib/crypto.ts` (+ roundtrip/tamper tests), `config/env.ts` + `.env.example` (fail-closed), `models/order.ts` (`assignedTo` + `confidentialData`), `routes/orders.ts` (encrypt at creation, whitelisted projections, reveal + audit endpoints; contract in `docs/public-api.md` + `docs/staff-api.md`). Proof: birth order E2E → Atlas `*Enc` only → admin reveal + audit.
-- Phase 2 (staff portal, built 2026-09-23): TOTP auth (lockout, refresh rotation, revoke), masked queue + atomic claim + filters + pagination, My Work / Closed / Search, tabbed detail, per-field reveal + reason + 30s mask, exception statuses + note rule, invitation outbox (+ resend), roster + workload + day-grouped timeline, settings. `npm test` green (18 files). Two bugs fixed (notes 500; audit-wipe → atomic updates).
+- Phase 1 (order security, built): request validation + server pricing + masked projections + authorized sensitive-data endpoints + audit trail; `config/env.ts` + `.env.example` (fail-closed). Contract in `docs/public-api.md` + `docs/staff-api.md`. Proof: birth order E2E → masked lists → authorized access + audit.
+- Phase 2 (staff portal, built 2026-09-23): TOTP auth (lockout, refresh rotation, revoke), masked queue + atomic claim + filters + pagination, My Work / Closed / Search, tabbed detail, controlled sensitive-data actions + auto-mask, exception statuses + note rule, invitation outbox (+ resend), roster + workload + day-grouped timeline, settings. `npm test` green (18 files). Two bugs fixed (notes 500; audit-wipe → atomic updates).
 - Phase 3 (runway): merge PRs → `develop` → staging (override inbox; keep staging orders; ≥1 paid test order) → hardening (payment go-live isolation + runbook, anti-abuse, confirmation-receipt endpoint, SEO, receipt parity, outbox visibility, audit retention + backup drill) → pre-launch wipe + seed + go-live on `flow.` → deferred (gov-fee CRUD, sales/revenue, attendance, Tasks, Documents tab/Center, Test Orders) → proposed awaiting owner (agency-payment confirmation field, read-only gov-fee reference, recovery codes, `Need Customer Information` outreach procedure, SLA escalation, saved filters + CSV + print sheet).

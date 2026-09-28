@@ -4,9 +4,9 @@ Last updated: 2026-09-25. Phase 1 (public APIs) and Phase 2 (staff MVP) are buil
 
 ## Implemented (see `architecture.md`, `public-api.md`, `staff-api.md`)
 
-- Orders: full Zod-validated contract, server-cent pricing (`$149/copy + $45 rush`), AES-256-GCM `confidentialData` + `assignedTo`, verify-before-payment, geo datasets (59 states, 9 CA counties blocked), Checkout Sessions (`ui_mode: elements`), idempotent Stripe webhooks with transaction-safe outboxes (Resend confirmation, GA4 purchase, OpenAI conversion), customer-safe tracking timeline, plate order numbers (`counters.orderSeq`).
-- Staff: invite-only TOTP auth (lockout, refresh rotation, revoke), masked FIFO queue + atomic claim/release/reassign, owner-or-ADMIN detail/notes/status/documents/reveal/audit, `TO_CS`/`GTG` lane with 26-value substatus, CS full-form correction, GridFS completion PDF, ADMIN roster/analytics/workload/activity, self `GET /staff/analytics`, password management.
-- 52+ unit tests green; `npm run build` clean.
+- Orders: full Zod-validated contract, server-cent pricing (`$149/copy + $45 rush`), sensitive-field handling (policy TBD — see `fulfillment.md`) + `assignedTo`, verify-before-payment, geo datasets (59 states, 9 CA counties blocked), Checkout Sessions (`ui_mode: elements`), idempotent Stripe webhooks with transaction-safe outboxes (Resend confirmation, GA4 purchase, OpenAI conversion), customer-safe tracking timeline, plate order numbers (`counters.orderSeq`).
+- Staff: invite-only TOTP auth (lockout, refresh rotation, revoke), masked FIFO queue + atomic claim/release/reassign, owner-or-ADMIN detail/notes/status/documents/sensitive-access, `TO_CS`/`GTG` lane with 26-value substatus, CS full-form correction, GridFS completion PDF, ADMIN roster/analytics/workload/activity, self `GET /staff/analytics`, password management.
+- 87 tests in 18 files green; `npm run build` clean.
 
 ## Remaining (Phase 3)
 
@@ -36,4 +36,6 @@ Proposed — awaiting owner decision:
 
 ## Doc rule
 
-After any code change, update this file's checkboxes + the matching `docs/` topic file in the same turn. Never log/store PAN, CVV, expiry, SSN, or secrets.
+After any code change, update this file's checkboxes + the matching `docs/` topic file in the same turn. Never log/store customer PII or secrets.
+
+> Scrub note 2026-09-28: SSN/card storage, encryption, reveal, and PCI-risk discussion removed from all docs pending owner decision (see `fulfillment.md` TBD pointer). Do not re-add until the decision lands.

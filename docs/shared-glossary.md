@@ -28,21 +28,13 @@ Plate format `US<ST>-<BT|DT|MG|DV>-<YYYYMMDD>-<DDLDDD>` (e.g. `USCA-BT-20260922-
 
 ## Pricing (two-fee model)
 
-Server-authoritative integer cents: `copies × $149 + ($45 rush if selected)`. Government/agency/shipping fees are charged later via the stored card and never enter the order total. Browser `totalCents` is display-only; mismatch → 422.
+Server-authoritative integer cents: `copies × $149 + ($45 rush if selected)`. Government/agency/shipping fees are charged separately later and never enter the order total. Browser `totalCents` is display-only; mismatch → 422.
 
-## Crypto (locked 2026-09-23)
+## Sensitive order fields (policy TBD — pending owner decision)
 
-- AES-256-GCM, random 12-byte IV per field, format `v1.<keyId>.<base64 iv>.<base64 ct>.<base64 tag>` (dot-joined).
-- Single `SENSITIVE_ENCRYPTION_KEY` (32 bytes, hex/base64) in backend env / Render secret, id `SENSITIVE_KEY_ID=v1`. Backend fails closed at startup when missing/malformed.
-- `confidentialData: { ssnEnc, cardNumberEnc, cardExpiryEnc, cardCvcEnc, keyId, encryptedAt }` on `orders`. No plaintext SSN/card fields, no `ssnLast4`/`cardLast4`/`cardBrand`. Same KEK encrypts TOTP secrets.
-- Encrypt at `POST /orders` after Zod + pricing validation, just before `Order.create`. Pre-launch wipe: owner deletes all existing orders (incl. owner-controlled backups) before go-live; no migration.
+Orders carry payment/identity fields whose storage, encryption, and staff-access policy is undecided. See code, not docs. Do not document storage mechanics, formats, or risk judgments here until the decision lands.
 
-## Reveal + audit (locked)
-
-- Masked `*********` everywhere by default; no last-4/brand before reveal. Two buttons per order: `Reveal SSN`, `Reveal Card` (no reveal-all). Reason required (`Govt submission` / `Verification` / `Other + text`).
-- `POST /orders/:id/reveal {field: ssn|card, reason}`: `requireAuth`, assigned-agent-or-ADMIN only, rate-limited 10/15min per IP (default per-IP limiter, no per-user key). Returns plaintext once; appends immutable `auditEvents {action: reveal, actorId, field, reason, at}`; never logs values. `GET /orders/:id/audit` is owner-or-admin only.
-- Frontend: 30-second countdown, then auto-mask + wipe from memory (`null`). Tab-hide / route-leave / logout wipes immediately. No localStorage/sessionStorage/analytics/clipboard persistence beyond explicit user copy while visible.
-- Audit everything (sanitized, never secrets): invite, login success/failure, MFA enroll/reset, claim/release/reassign, status transition, notes, reveals, document upload/download/delete, password resets.
+- Audit everything: invite, login success/failure, MFA enroll/reset, claim/release/reassign, status transition, notes, document upload/download/delete, password resets.
 
 ## Scope locks
 
