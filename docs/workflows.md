@@ -15,7 +15,9 @@ Staff local test: seed ADMIN in `staff_users` (Argon2 hash — generate via `npx
 
 ## Env vars (names only — never commit values)
 
-`MONGODB_URI`, `MONGODB_DB_NAME`, `FRONTEND_URL` (exact origin), `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PUBLISHABLE_KEY`, `EMAIL_ENABLED`, `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_REPLY_TO`, `EMAIL_RECIPIENT_OVERRIDE` (staging-only), `STAFF_PORTAL_URL` (required when email on; prod `https://flow.usvitalcertificates.org`), `SENSITIVE_ENCRYPTION_KEY` (secret, fresh per env), `SENSITIVE_KEY_ID` (`v1`), `ANALYTICS_ENABLED`, `GA_MEASUREMENT_ID`, `GA4_MEASUREMENT_PROTOCOL_API_SECRET`, `OPENAI_CONVERSIONS_ENABLED`, `OPENAI_ADS_PIXEL_ID`, `OPENAI_CONVERSION_SOURCE_URL`, `OPENAI_CONVERSIONS_API_KEY`.
+`MONGODB_URI`, `MONGODB_DB_NAME`, `FRONTEND_URL` (exact origin), `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PUBLISHABLE_KEY`, `EMAIL_ENABLED`, `RESEND_API_KEY`, `EMAIL_FROM`, `EMAIL_REPLY_TO`, `EMAIL_RECIPIENT_OVERRIDE` (staging-only), `STAFF_PORTAL_URL` (required when email on; prod `https://flow.usvitalcertificates.org`), `SENSITIVE_ENCRYPTION_KEY` (secret, fresh per env), `SENSITIVE_KEY_ID` (`v1`), `ANALYTICS_ENABLED`, `GA_MEASUREMENT_ID`, `GA4_MEASUREMENT_PROTOCOL_API_SECRET`, `OPENAI_CONVERSIONS_ENABLED`, `OPENAI_ADS_PIXEL_ID`, `OPENAI_CONVERSION_SOURCE_URL`, `OPENAI_CONVERSIONS_API_KEY`. Plus optional `NODE_ENV` (default `development`) and `PORT` (default `4000`), accepted by `config/env.ts` but absent from `.env.example`.
+
+`render.yaml` sets only 12 keys (`NODE_VERSION`, `EMAIL_*` non-secret, `RESEND_API_KEY`, `ANALYTICS_*`, `OPENAI_*`, `SENSITIVE_*` — secrets as `sync: false`). These must be set on the Render dashboard instead: `MONGODB_URI`, `MONGODB_DB_NAME`, `FRONTEND_URL`, `JWT_ACCESS_SECRET`, `JWT_REFRESH_SECRET`, `STRIPE_SECRET_KEY`, `STRIPE_WEBHOOK_SECRET`, `STRIPE_PUBLISHABLE_KEY`, `STAFF_PORTAL_URL`, `EMAIL_RECIPIENT_OVERRIDE` (staging only).
 
 ## Render deploy
 

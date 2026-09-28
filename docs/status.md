@@ -31,6 +31,8 @@ Proposed — awaiting owner decision:
 - [ ] Read-only gov-fee reference for agents
 - [ ] Staff TOTP recovery codes (only MFA-reset exists today)
 - [ ] `To CS` customer outreach procedure (tracker neutral today)
+- [ ] Add `requireActiveStaff` to the 6 `orders.ts` staff endpoints (reveal/audit/status/document) — today they check `requireAuth` alone, so a disabled/revoked staffer with an unexpired 30m token can still use them (found in docs audit 2026-09-28; docs-first decision: fix code, not docs)
+- [ ] Confirm CS-can-`SUBMITTED` is intended (a CS owner with PDF + note can submit today; only ADMIN bypass is documented)
 
 ## Doc rule
 
