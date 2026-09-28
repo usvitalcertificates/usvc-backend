@@ -21,9 +21,14 @@ Production hardening (before go-live):
 Deferred modules:
 
 - [ ] `GET /government-fees` public read + gov-fee CRUD + audit
-- [ ] Sales/revenue aggregation endpoints
+- [x] Sales/revenue aggregation endpoints — `GET /admin/orders-summary` ships certificate/state/status/revenue facets (paid orders, date-rangeable); per-agent revenue still open
 - [ ] Attendance routes, Tasks system, Documents tab backend
 - [ ] Do NOT build custody/vault/second-charge
+
+Chart roadmap (backend `$facet` returns all dimensions in one call — new charts are frontend-only):
+
+- [x] By certificate, by state, certificate×state matrix, by status, totals
+- [ ] Orders-over-time series, per-agent throughput/conversion, refund/failed tracking, CSV export endpoint
 
 Proposed — awaiting owner decision:
 

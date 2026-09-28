@@ -14,6 +14,11 @@ import {
   summarizeStaffAnalytics,
   type AnalyticsOrder,
 } from "../lib/admin-staff-analytics.js";
+import {
+  normalizeSummary,
+  ordersSummaryQuerySchema,
+  summaryFacetPipeline,
+} from "../lib/orders-summary.js";
 import { Order } from "../models/order.js";
 import { StaffUser } from "../models/staff.js";
 import { EmailOutbox } from "../models/email-outbox.js";
@@ -261,20 +266,6 @@ interface OrderWithAudit {
   auditEvents?: AuditEventLean[];
 }
 
-interface AdminOrderActivityLean extends OrderWithAudit {
-  _id: unknown;
-  certificate: string;
-  stateCode: string;
-  geo?: { county?: string };
-  rush?: boolean;
-  status: string;
-}
-
-interface StaffActorLean {
-  _id: unknown;
-  fullName?: string;
-  email: string;
-}
 /**
  * Password recovery for active staff. Issues a fresh single-use 48h setup
  * token (the invite machinery, reused — never a shared temp password).
@@ -340,118 +331,14 @@ adminRouter.get("/workload", async (_req, res, next) => {
   }
 });
 
-/** Paginated order-centric audit index for the Administration dashboard. */
-adminRouter.get("/order-activity", async (req, res, next) => {
+/** Business analytics for the Administration dashboard: paid-order aggregates. */
+adminRouter.get("/orders-summary", async (req, res, next) => {
   try {
-    const query = z
-      .object({
-        search: z.string().trim().max(80).default(""),
-        page: z.coerce.number().int().min(1).default(1),
-        limit: z.coerce.number().int().min(1).max(100).default(20),
-      })
-      .parse(req.query);
-    const escaped = query.search.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const match: Record<string, unknown> = { "auditEvents.0": { $exists: true } };
-    if (escaped) match["publicNumber"] = { $regex: escaped, $options: "i" };
-    const [rawOrders, total] = await Promise.all([
-      Order.find(match, {
-        publicNumber: 1,
-        certificate: 1,
-        stateCode: 1,
-        "geo.county": 1,
-        rush: 1,
-        status: 1,
-        auditEvents: 1,
-      })
-        .sort({ updatedAt: -1 })
-        .skip((query.page - 1) * query.limit)
-        .limit(query.limit)
-        .lean(),
-      Order.countDocuments(match),
-    ]);
-    const orders = rawOrders as unknown as AdminOrderActivityLean[];
-    res.json({
-      orders: orders.map((order) => {
-        const events = order.auditEvents ?? [];
-        const latest = events.reduce<Date | null>((value, event) => {
-          const at = event.createdAt;
-          return at && (!value || at > value) ? at : value;
-        }, null);
-        return {
-          id: String(order._id),
-          publicNumber: order.publicNumber,
-          certificate: order.certificate,
-          stateCode: order.stateCode,
-          county: order.geo?.county ?? "",
-          rush: order.rush,
-          status: order.status,
-          activityCount: events.length,
-          latestActivityAt: latest,
-        };
-      }),
-      total,
-      page: query.page,
-      pages: Math.max(1, Math.ceil(total / query.limit)),
-    });
-  } catch (e) {
-    next(e);
-  }
-});
-
-/** Complete safe activity timeline for one order. */
-adminRouter.get("/order-activity/:id", async (req, res, next) => {
-  try {
-    const id = z
-      .string()
-      .regex(/^[0-9a-fA-F]{24}$/)
-      .parse(req.params.id);
-    const order = (await Order.findById(id, {
-      publicNumber: 1,
-      certificate: 1,
-      stateCode: 1,
-      "geo.county": 1,
-      rush: 1,
-      status: 1,
-      auditEvents: 1,
-    }).lean()) as unknown as AdminOrderActivityLean | null;
-    if (!order) throw new ApiError(404, "Order not found");
-    const actorIds = [
-      ...new Set((order.auditEvents ?? []).map((event) => event.actorId).filter(Boolean)),
+    const query = ordersSummaryQuerySchema.parse(req.query);
+    const [facet] = (await Order.aggregate(summaryFacetPipeline(query))) as unknown as [
+      Record<string, unknown[]>?,
     ];
-    const actors = (await StaffUser.find(
-      { _id: { $in: actorIds } },
-      { fullName: 1, email: 1 },
-    ).lean()) as unknown as StaffActorLean[];
-    const actorById = new Map(
-      actors.map((actor) => [
-        String(actor._id),
-        { fullName: actor.fullName || "", email: actor.email },
-      ]),
-    );
-    res.json({
-      order: {
-        id: String(order._id),
-        publicNumber: order.publicNumber,
-        certificate: order.certificate,
-        stateCode: order.stateCode,
-        county: order.geo?.county ?? "",
-        rush: order.rush,
-        status: order.status,
-      },
-      activity: [...(order.auditEvents ?? [])]
-        .sort((a, b) => (b.createdAt?.getTime() ?? 0) - (a.createdAt?.getTime() ?? 0))
-        .map((event) => {
-          const actor = event.actorId ? actorById.get(event.actorId) : undefined;
-          const metadata = event.metadata as Record<string, unknown> | undefined;
-          return {
-            at: event.createdAt,
-            action: event.action,
-            actorName: actor?.fullName || actor?.email || "System",
-            actorEmail: actor?.email ?? null,
-            detail: metadata ? { status: metadata["status"], field: metadata["field"] } : undefined,
-          };
-        }),
-    });
+    res.json(normalizeSummary(query, facet ?? {}));
   } catch (e) {
     next(e);
   }
