@@ -14,4 +14,4 @@ Requires Node.js 24 and a MongoDB replica set. Health: `GET http://localhost:400
 
 ## AI agents
 
-All AI documentation lives in the sibling private repo `../usvc-ai-context/` — see `usvc-backend/AGENTS.md` there.
+Start with `AGENTS.md`, then `docs/` (`architecture.md`, `coding-rules.md`, `shared-overview.md`, `shared-glossary.md`, `shared-security.md`, plus `public-api.md` or `staff-api.md`, `workflows.md`, `fulfillment.md`, `status.md`).
