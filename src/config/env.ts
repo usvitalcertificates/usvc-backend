@@ -54,6 +54,7 @@ const schema = z
       .optional(),
     OPENAI_CONVERSIONS_API_KEY: z.string().min(1).optional(),
     OPENAI_CONVERSION_SOURCE_URL: z.string().url().optional(),
+    CARD_PURGE_HOUR: z.coerce.number().int().min(0).max(23).default(4),
   })
   .superRefine((value, context) => {
     if (value.EMAIL_ENABLED) {
