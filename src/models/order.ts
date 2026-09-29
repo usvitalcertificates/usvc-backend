@@ -170,6 +170,9 @@ const OrderSchema = new Schema(
 
 OrderSchema.index({ email: 1, publicNumber: 1 });
 OrderSchema.index({ status: 1, createdAt: -1 });
+OrderSchema.index({ certificate: 1 });
+OrderSchema.index({ stateCode: 1 });
+OrderSchema.index({ createdAt: -1 });
 OrderSchema.index({ "auditEvents.actorId": 1, "auditEvents.createdAt": -1 });
 
 export type OrderDoc = InferSchemaType<typeof OrderSchema>;

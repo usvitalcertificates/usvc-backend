@@ -1,26 +1,31 @@
 # Backend contribution rules
 
-This folder is the USVC Express + TypeScript API. It uses MongoDB Atlas through Mongoose; raw driver code, Mongoose alternatives, Prisma, PostgreSQL, and plaintext payment-card storage are not part of this project.
+This folder is the USVC Express + TypeScript API. It uses MongoDB Atlas through Mongoose; raw driver code, Mongoose alternatives, Prisma, PostgreSQL, and plaintext secret storage are not part of this project.
 
-- Keep money as integer cents and calculate totals only on the server.
-- Validate every request with Zod before using it.
-- Use typed MongoDB collections and startup indexes. Do not make manual production data changes.
-- Stripe webhooks must have signature verification, event idempotency, and transaction-safe order updates.
-- Never log or return plaintext PAN, CVV, expiry data, SSN, Stripe secret keys, JWT secrets, or other credentials. PAN/CVV/expiry/SSN from the application form are encrypted into `confidentialData` (AES-256-GCM) before persistence and revealed only via the authorized, audit-logged reveal endpoint.
-- Requestor SSN and payment-card fields exist only as ciphertext in `confidentialData` on the order document (government formalities + admin access). They must never be returned by public tracking/confirmation projections and never logged. Staff reads require `POST /orders/:id/reveal` authorization (assigned agent or super-admin) with a recorded reason.
-- Do not place real values in `.env.example` or documentation.
-- Keep public application data separate from staff-only information.
-- Run `npm run build` and `npm test` before handoff.
-- Format with `npm run format`, verify with `npm run format:check` and `npm run lint`.
-- A pre-commit hook runs lint-staged, then `tsc --noEmit`, then `npm test`. Hooks install via `npm install` (`prepare` script).
-- ESLint covers JS configs/scripts; TS rules are blocked on typescript-eslint supporting TypeScript 7, so `tsc` is the TS gate and Prettier owns style.
+## Read order for AI agents
 
-See [README.md](README.md) and [docs/CURRENT_STATUS.md](docs/CURRENT_STATUS.md) before adding a module.
+1. `docs/shared-overview.md`, `docs/shared-glossary.md`, `docs/shared-security.md`.
+2. This file, then `docs/architecture.md`, then `docs/coding-rules.md`.
+3. Task-specific: customer-facing order/payment/tracking → `docs/public-api.md`; invite/auth/queue/reveal/admin → `docs/staff-api.md`; deploys/env → `docs/workflows.md`; fulfillment plan → `docs/fulfillment.md`; status/backlog → `docs/status.md`.
 
-- Plan and track work in [docs/TODO.md](docs/TODO.md); log locked choices in [docs/DECISIONS.md](docs/DECISIONS.md). After any code change, update `docs/TODO.md` + `docs/CURRENT_STATUS.md` in the same turn.
+## Public API vs Staff API
+
+- **Public API** (`docs/public-api.md`): no token — order create/verify/geo/checkout/tracking/contact + Stripe webhooks (signature, not JWT).
+- **Staff API** (`docs/staff-api.md`): `requireAuth` + assigned-or-admin or `requireAdmin`. Queue claim, detail, notes, correction, status, documents, reveal/audit, admin roster/analytics.
+- Keep public projections whitelisted (never sensitive order fields); staff reads go through authorized endpoints only.
+
+## Hard rules (full list in `docs/coding-rules.md`)
+
+- Money as integer cents, calculated only on the server. Never trust browser totals.
+- Validate every request with Zod before use.
+- Mongoose typed models + startup indexes. No manual production data changes.
+- Stripe webhooks: signature verify + event-ID idempotency + transaction-safe updates.
+- Never log/return plaintext customer PII or secrets. Sensitive order fields are never in public projections; staff reads go only through authorized, audited endpoints.
+- Gates before handoff: `npm run build` + `npm test`, plus `format`, `format:check`, `lint`. Pre-commit: lint-staged + `tsc --noEmit` + `npm test`.
 
 ## Git workflow (locked)
 
 - `main` = production. `develop` = staging. Never commit directly to either.
 - Always create a feature branch from `develop` (`git checkout -b feat/<name> develop`) and raise the PR against `develop`.
 - Merge `develop` → `main` only for production releases.
+- After any code change, update `docs/status.md` + the matching `docs/` topic file in the same turn.

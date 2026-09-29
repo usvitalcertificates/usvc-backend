@@ -1,42 +1,17 @@
 # USVC backend
 
-The USVC backend is an Express 5 API written in TypeScript. It persists orders, staff users, Stripe event records, government fees, and attendance records in MongoDB Atlas via the official MongoDB Node.js driver.
-
-## Current implementation
-
-- Health check, security headers, CORS allowlist, request-size limit, and global rate limiting.
-- Staff email/password login with Argon2 password verification and JWT access/refresh tokens.
-- Order creation with server-authoritative, integer-cent pricing.
-- Stripe PaymentIntent creation.
-- Signed, idempotent Stripe webhook handling using an Atlas transaction.
-- Durable Resend payment-confirmation email outbox with leasing, retries, and duplicate prevention.
-- Public order lookup by public order number and customer email.
-- MongoDB startup indexes for staff email, order number, payment intent, fees, and attendance.
-
-Staff administration, invitations, refresh/logout endpoints, MFA enrollment, fulfillment queues, fee-management screens, reporting, and attendance APIs are planned; do not describe them as live until their routes and tests exist.
-
-## Requirements
-
-- Node.js 24.x (LTS, as declared in `package.json`).
-- A MongoDB Atlas cluster or another MongoDB replica set. Replica-set support is required for webhook transactions.
-- Stripe test keys for local development.
+Express 5 + TypeScript API backed by MongoDB Atlas via Mongoose. Server-authoritative pricing, invite-only TOTP staff auth, Stripe Checkout Sessions with idempotent webhooks.
 
 ## Run locally
 
 ```bash
-cp .env.example .env
+cp .env.example .env # Atlas URI, Stripe test keys
 npm install
 npm run dev
 ```
 
-The API listens on `http://localhost:4000` by default. Confirm it with `GET /health`.
+Requires Node.js 24 and a MongoDB replica set. Health: `GET http://localhost:4000/health`.
 
-Documentation:
+## AI agents
 
-- [Local development](docs/LOCAL_DEVELOPMENT.md)
-- [API reference](docs/API.md)
-- [Deployment](docs/DEPLOYMENT.md)
-- [Architecture decisions](docs/DECISIONS.md)
-- [Current status and data boundaries](docs/CURRENT_STATUS.md)
-
-# usvc-backend
+Start with `AGENTS.md`, then `docs/` (`architecture.md`, `coding-rules.md`, `shared-overview.md`, `shared-glossary.md`, `shared-security.md`, plus `public-api.md` or `staff-api.md`, `workflows.md`, `fulfillment.md`, `status.md`).
