@@ -206,6 +206,15 @@ test("requires SSN and DOB for California birth records", () => {
   assert.ok(result.errors["requestorSsn"]);
 });
 
+test("requires SSN for every certificate type", () => {
+  for (const cert of ["BIRTH", "DEATH", "MARRIAGE", "DIVORCE"] as const) {
+    const input = createOrderSchema.parse({ ...base(cert), ...SUBJECTS[cert], requestorSsn: "" });
+    const result = validateOrderSubmission(input);
+    assert.equal(result.ok, false, cert);
+    assert.ok(result.errors["requestorSsn"], cert);
+  }
+});
+
 test("order document stores secrets only as ciphertext in confidentialData", () => {
   const doc = new Order({
     publicNumber: "USVC-BI-20260921-TEST01",
