@@ -88,6 +88,8 @@ const OrderSchema = new Schema(
       cardNumberEnc: { type: String, default: "" },
       cardExpiryEnc: { type: String, default: "" },
       cardCvcEnc: { type: String, default: "" },
+      /** Last 4 digits kept as a non-sensitive reference after nightly card purge. */
+      cardLast4: { type: String, default: "" },
       keyId: { type: String, default: "v1" },
       encryptedAt: { type: Date },
     },

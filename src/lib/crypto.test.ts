@@ -16,7 +16,7 @@ describe("confidentialData crypto (AES-256-GCM)", () => {
     }
   });
 
-  test("empty stays empty (optional SSN on non-birth orders)", () => {
+  test("empty stays empty", () => {
     assert.equal(encryptSensitive(""), "");
     assert.equal(decryptSensitive(""), "");
   });
