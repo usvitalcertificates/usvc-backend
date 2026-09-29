@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 export interface OpenAIConversionData {
   eventId: string;
   occurredAt: Date;
@@ -7,6 +9,12 @@ export interface OpenAIConversionData {
   copies: number;
   oppref?: string;
   obref?: string;
+  emailHash?: string;
+}
+
+/** Hashes the normalized email required by the OpenAI Conversions API. */
+export function hashOpenAIEmail(email: string): string {
+  return createHash("sha256").update(email.trim().toLowerCase(), "utf8").digest("hex");
 }
 
 export function buildOpenAIConversionPayload(delivery: OpenAIConversionData, sourceUrl: string) {
@@ -21,7 +29,14 @@ export function buildOpenAIConversionPayload(delivery: OpenAIConversionData, sou
         ...(delivery.oppref ? { oppref: delivery.oppref } : {}),
         source_url: sourceUrl,
         action_source: "web",
-        ...(delivery.obref ? { user: { obref: delivery.obref } } : {}),
+        ...(delivery.obref || delivery.emailHash
+          ? {
+              user: {
+                ...(delivery.obref ? { obref: delivery.obref } : {}),
+                ...(delivery.emailHash ? { emails_sha256: [delivery.emailHash] } : {}),
+              },
+            }
+          : {}),
         data: {
           type: "contents",
           amount: delivery.amountCents,

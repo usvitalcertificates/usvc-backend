@@ -16,6 +16,7 @@ const OpenAIConversionDeliverySchema = new Schema(
     copies: { type: Number, required: true },
     oppref: { type: String, default: "" },
     obref: { type: String, default: "" },
+    emailHash: { type: String, default: "" },
     status: {
       type: String,
       enum: ["PENDING", "SENDING", "SENT", "FAILED"],

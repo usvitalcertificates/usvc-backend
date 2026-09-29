@@ -145,6 +145,7 @@ export const createOrderSchema = z.object({
     refund: z.boolean(),
     independent: z.boolean(),
     processingPayment: z.boolean(),
+    openAiEmailMatching: z.boolean().optional().default(false),
   }),
   processingAuthorization: z.object({
     accepted: z.literal(true),
