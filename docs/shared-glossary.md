@@ -30,10 +30,6 @@ Plate format `US<ST>-<BT|DT|MG|DV>-<YYYYMMDD>-<DDLDDD>` (e.g. `USCA-BT-20260922-
 
 Server-authoritative integer cents: `copies × $149 + ($45 rush if selected)`. Government/agency/shipping fees are charged separately later and never enter the order total. Browser `totalCents` is display-only; mismatch → 422.
 
-## Sensitive order fields (policy TBD — pending owner decision)
-
-Orders carry payment/identity fields whose storage, encryption, and staff-access policy is undecided. See code, not docs. Do not document storage mechanics, formats, or risk judgments here until the decision lands.
-
 - Audit everything: invite, login success/failure, MFA enroll/reset, claim/release/reassign, status transition, notes, document upload/download/delete, password resets.
 
 ## Scope locks
