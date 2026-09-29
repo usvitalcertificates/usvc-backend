@@ -68,6 +68,7 @@ const OrderSchema = new Schema(
       refund: { type: Boolean, required: true },
       independent: { type: Boolean, required: true },
       processingPayment: { type: Boolean, required: true },
+      openAiEmailMatching: { type: Boolean, default: false },
     },
     processingAuthorization: {
       accepted: { type: Boolean, default: false },

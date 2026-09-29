@@ -1,10 +1,10 @@
 # Backend status + remaining work
 
-Last updated: 2026-09-25. Phase 1 (public APIs) and Phase 2 (staff MVP) are built; fulfillment plan split into `fulfillment.md` (backend) + frontend `docs/fulfillment.md`.
+Last updated: 2026-09-29. Phase 1 (public APIs) and Phase 2 (staff MVP) are built; fulfillment plan split into `fulfillment.md` (backend) + frontend `docs/fulfillment.md`.
 
 ## Implemented (see `architecture.md`, `public-api.md`, `staff-api.md`)
 
-- Orders: full Zod-validated contract, server-cent pricing (`$149/copy + $45 rush`), sensitive-field handling (policy TBD — see `fulfillment.md`) + `assignedTo`, verify-before-payment, geo datasets (59 states, 9 CA counties blocked), Checkout Sessions (`ui_mode: elements`), idempotent Stripe webhooks with transaction-safe outboxes (Resend confirmation, GA4 purchase, OpenAI conversion), customer-safe tracking timeline, plate order numbers (`counters.orderSeq`).
+- Orders: full Zod-validated contract, server-cent pricing (`$149/copy + $45 rush`), sensitive-field handling (policy TBD — see `fulfillment.md`) + `assignedTo`, verify-before-payment, geo datasets (59 states, 9 CA counties blocked), Checkout Sessions (`ui_mode: elements`), idempotent Stripe webhooks with transaction-safe outboxes (Resend confirmation, GA4 purchase, OpenAI conversion with consent-gated SHA-256 email matching), customer-safe tracking timeline, plate order numbers (`counters.orderSeq`).
 - Staff: invite-only TOTP auth (lockout, refresh rotation, revoke), masked FIFO queue + atomic claim/release/reassign, owner-or-ADMIN detail/notes/status/documents/sensitive-access, `TO_CS`/`GTG` lane with 26-value substatus, CS full-form correction, GridFS completion PDF, ADMIN roster/analytics/workload/activity, self `GET /staff/analytics`, password management.
 - 87 tests in 18 files green; `npm run build` clean.
 

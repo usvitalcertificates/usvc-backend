@@ -142,6 +142,7 @@ ordersRouter.post("/", async (req, res, next) => {
       id: order._id.toHexString(),
       publicNumber: order.publicNumber,
       amountCents: order.amountCents,
+      openAiEventId: order.analytics?.openAiEventId ?? "",
     });
   } catch (e) {
     next(e);
