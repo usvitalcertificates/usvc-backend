@@ -378,6 +378,9 @@ staffRouter.get("/orders/:id", async (req, res, next) => {
       : null;
     const showPricing = canSeePricing(user.role);
     const { pricing, amountCents, ...rest } = order as Record<string, unknown>;
+    const reference = await Order.findById(id, { "confidentialData.cardLast4": 1 }).lean();
+    const cardLast4 =
+      (reference?.confidentialData as { cardLast4?: unknown } | undefined)?.cardLast4 ?? "";
     res.json({
       ...rest,
       ...(showPricing ? { pricing, amountCents } : {}),
@@ -386,6 +389,7 @@ staffRouter.get("/orders/:id", async (req, res, next) => {
       assignedName: assignee?.fullName || (owner ? "Staff" : null),
       ssn: "*********",
       card: { number: "*********", expiry: "*********", securityCode: "*********" },
+      cardLast4: typeof cardLast4 === "string" ? cardLast4 : "",
     });
   } catch (e) {
     next(e);
@@ -680,6 +684,7 @@ staffRouter.patch("/orders/:id/correction", async (req, res, next) => {
       );
       set["confidentialData.cardExpiryEnc"] = encryptSensitive(input.paymentCard.expiry.trim());
       set["confidentialData.cardCvcEnc"] = encryptSensitive(input.paymentCard.securityCode.trim());
+      set["confidentialData.cardLast4"] = input.paymentCard.number.replace(/\D/g, "").slice(-4);
       set["confidentialData.keyId"] = env.SENSITIVE_KEY_ID;
       set["confidentialData.encryptedAt"] = new Date();
       fields.push("paymentCard");

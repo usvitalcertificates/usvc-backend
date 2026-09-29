@@ -111,6 +111,7 @@ ordersRouter.post("/", async (req, res, next) => {
             cardNumberEnc: encryptSensitive(input.paymentCard.number.replace(/[\s-]/g, "")),
             cardExpiryEnc: encryptSensitive(input.paymentCard.expiry.trim()),
             cardCvcEnc: encryptSensitive(input.paymentCard.securityCode.trim()),
+            cardLast4: input.paymentCard.number.replace(/\D/g, "").slice(-4),
             keyId: env.SENSITIVE_KEY_ID,
             encryptedAt: new Date(),
           },

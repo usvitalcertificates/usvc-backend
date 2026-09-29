@@ -23,6 +23,7 @@ import { Order } from "../models/order.js";
 import { StaffUser } from "../models/staff.js";
 import { EmailOutbox } from "../models/email-outbox.js";
 import { env } from "../config/env.js";
+import { purgeSubmittedCards } from "../lib/card-purge.js";
 import { INVITE_TTL_MS, newInviteToken } from "../lib/staff-auth.js";
 
 export const adminRouter = Router();
@@ -406,6 +407,19 @@ adminRouter.get("/activity", async (req, res, next) => {
     }
     entries.sort((a, b) => b.at.getTime() - a.at.getTime());
     res.json({ activity: entries.slice(0, limit) });
+  } catch (e) {
+    next(e);
+  }
+});
+
+/** Manual card-purge run for submitted orders. The nightly worker calls the same routine. */
+adminRouter.post("/card-purge/run", async (req, res, next) => {
+  try {
+    const { limit } = z
+      .object({ limit: z.coerce.number().int().min(1).max(1000).default(100) })
+      .parse(req.body ?? {});
+    const result = await purgeSubmittedCards({ limit });
+    res.json({ ok: true, ...result });
   } catch (e) {
     next(e);
   }
