@@ -283,16 +283,14 @@ export function validateOrderSubmission(input: CreateOrderInput): OrderValidatio
       errors["subject.eventDate"] = "Please enter a valid date.";
   }
 
-  // All birth applications require an SSN; California also requires the requestor DOB.
+  // Every application requires a requestor SSN; California birth also requires the requestor DOB.
   const isCaliforniaBirth = input.stateCode === "CA" && input.certificate === "BIRTH";
-  if (input.certificate === "BIRTH" && !isPlausibleSsn((input.requestorSsn ?? "").trim())) {
-    errors["requestorSsn"] = "Social Security Number is required for birth records.";
+  if (!isPlausibleSsn((input.requestorSsn ?? "").trim())) {
+    errors["requestorSsn"] = "Social Security Number is required.";
   }
   if (isCaliforniaBirth) {
     if (!isValidDateString(input.applicant.dateOfBirth ?? ""))
       errors["applicant.dateOfBirth"] = "Date of birth is required for California birth records.";
-  } else if (input.requestorSsn && !isPlausibleSsn(input.requestorSsn.trim())) {
-    errors["requestorSsn"] = "Please enter a valid Social Security Number.";
   }
   if (input.applicant.dateOfBirth && !isValidDateString(input.applicant.dateOfBirth)) {
     errors["applicant.dateOfBirth"] = "Please enter a valid date of birth.";
