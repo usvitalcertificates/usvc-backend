@@ -83,6 +83,20 @@ for (const cert of ["BIRTH", "DEATH", "MARRIAGE", "DIVORCE"] as const) {
   });
 }
 
+test("defaults the optional OpenAI email-matching consent to false", () => {
+  const input = createOrderSchema.parse({ ...base("BIRTH"), ...SUBJECTS.BIRTH });
+  assert.equal(input.consents.openAiEmailMatching, false);
+});
+
+test("accepts explicit OpenAI email-matching consent", () => {
+  const input = createOrderSchema.parse({
+    ...base("BIRTH"),
+    ...SUBJECTS.BIRTH,
+    consents: { ...base("BIRTH").consents, openAiEmailMatching: true },
+  });
+  assert.equal(input.consents.openAiEmailMatching, true);
+});
+
 test("does not require a birth subject suffix", () => {
   const input = createOrderSchema.parse({
     ...base("BIRTH"),
