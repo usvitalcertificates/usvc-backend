@@ -113,6 +113,7 @@ export const createOrderSchema = z.object({
     firstName: z.string().min(1).max(120),
     middleName: z.string().max(120).optional().default(""),
     lastName: z.string().min(1).max(120),
+    suffix: z.string().max(20).optional().default(""),
     dateOfBirth: z.string().max(20).optional().default(""),
     phone: z.string().min(1).max(40),
     email: z.string().min(1).max(255),
@@ -184,7 +185,7 @@ export type CreateOrderInput = z.infer<typeof createOrderSchema>;
 /** Required subject/family keys per certificate, ported from reference form-config. */
 const REQUIRED: Record<CreateOrderInput["certificate"], { subject: string[]; family: string[] }> = {
   BIRTH: {
-    subject: ["firstName", "lastName", "eventDate"],
+    subject: ["firstName", "middleName", "lastName", "eventDate", "sex", "stillLiving"],
     family: ["motherFirstName", "motherCurrentLastName", "motherLastName"],
   },
   DEATH: { subject: ["firstName", "lastName", "eventDate"], family: [] },
@@ -199,6 +200,39 @@ function isValidDateString(value: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
   const time = Date.parse(`${value}T00:00:00Z`);
   return Number.isFinite(time);
+}
+
+/** Earliest birth year USVR accepts (Alabama reference form). */
+const BIRTH_MIN_DATE = "1906-01-01";
+
+function utcDateString(date: Date): string {
+  return date.toISOString().slice(0, 10);
+}
+
+/** Latest birth date USVR accepts: records are unavailable until 90 days after birth. */
+function birthMaxDate(now = new Date()): string {
+  const cutoff = new Date(now);
+  cutoff.setUTCDate(cutoff.getUTCDate() - 90);
+  return utcDateString(cutoff);
+}
+
+/** Shared birth-event-date window check (1906 .. 90 days ago). Empty/invalid
+ *  values are reported by the required-field / format checks, not here. */
+function birthEventDateError(eventDate: string, now = new Date()): string {
+  if (!eventDate || !isValidDateString(eventDate)) return "";
+  if (eventDate < BIRTH_MIN_DATE)
+    return "We can only accept orders for births that occurred in 1906 or later.";
+  if (eventDate > birthMaxDate(now))
+    return "Birth records are not available until 90 days after the date of birth.";
+  return "";
+}
+
+/** USVR rule: when the requestor is the father, an unknown father is not valid. */
+function fatherUnknownError(relationship: string, fatherStatus: string): string {
+  return relationship.trim().toLowerCase() === "father" &&
+    fatherStatus.trim().toLowerCase() === "unknown"
+    ? "If the relationship is Father, Unknown is not a valid selection."
+    : "";
 }
 
 /** Luhn checksum for the card number (spaces/dashes stripped first). */
@@ -252,7 +286,9 @@ export function validateOrderSubmission(input: CreateOrderInput): OrderValidatio
     if (!(input.family[key] ?? "").trim())
       errors[`family.${key}`] = "Please complete this required field.";
   }
-  // Father names required unless explicitly unknown / not listed (birth only).
+  // Father names required unless explicitly unknown (birth only).
+  // "Not listed" is a legacy value the form no longer offers; it is still
+  // treated like unknown so old orders keep validating.
   if (input.certificate === "BIRTH") {
     const status = (input.family["fatherStatus"] ?? "").trim().toLowerCase();
     if (status !== "unknown" && status !== "not listed" && status !== "") {
@@ -261,8 +297,14 @@ export function validateOrderSubmission(input: CreateOrderInput): OrderValidatio
           errors[`family.${key}`] = "Please complete this required field.";
       }
     }
-    if (input.subject["eventDate"] && !isValidDateString(input.subject["eventDate"]!)) {
+    const fatherRule = fatherUnknownError(input.applicant.relationship, status);
+    if (fatherRule) errors["family.fatherStatus"] = fatherRule;
+    const birthDate = (input.subject["eventDate"] ?? "").trim();
+    if (birthDate && !isValidDateString(birthDate)) {
       errors["subject.eventDate"] = "Please enter a valid date.";
+    } else {
+      const windowError = birthEventDateError(birthDate);
+      if (windowError) errors["subject.eventDate"] = windowError;
     }
     if (
       (input.subject["sex"] ?? "").trim().toLowerCase() === "female" &&
@@ -281,16 +323,15 @@ export function validateOrderSubmission(input: CreateOrderInput): OrderValidatio
       errors["subject.eventDate"] = "Please enter a valid date.";
   }
 
-  // Every application requires a requestor SSN; California birth also requires the requestor DOB.
-  const isCaliforniaBirth = input.stateCode === "CA" && input.certificate === "BIRTH";
+  // Every application requires a requestor SSN; every birth application
+  // additionally requires the requestor date of birth (USVR parity).
   if (!isPlausibleSsn((input.requestorSsn ?? "").trim())) {
     errors["requestorSsn"] = "Social Security Number is required.";
   }
-  if (isCaliforniaBirth) {
-    if (!isValidDateString(input.applicant.dateOfBirth ?? ""))
-      errors["applicant.dateOfBirth"] = "Date of birth is required for California birth records.";
-  }
-  if (input.applicant.dateOfBirth && !isValidDateString(input.applicant.dateOfBirth)) {
+  if (input.certificate === "BIRTH") {
+    if (!isValidDateString((input.applicant.dateOfBirth ?? "").trim()))
+      errors["applicant.dateOfBirth"] = "Requestor date of birth is required for birth records.";
+  } else if (input.applicant.dateOfBirth && !isValidDateString(input.applicant.dateOfBirth)) {
     errors["applicant.dateOfBirth"] = "Please enter a valid date of birth.";
   }
 
@@ -356,6 +397,7 @@ export interface CorrectionCandidate {
     firstName: string;
     middleName: string;
     lastName: string;
+    suffix: string;
     dateOfBirth: string;
     phone: string;
     email: string;
@@ -403,6 +445,8 @@ export function validateCorrection(input: CorrectionCandidate): OrderValidationR
           errors[`family.${key}`] = "Please complete this required field.";
       }
     }
+    const correctionFatherRule = fatherUnknownError(input.applicant.relationship, status);
+    if (correctionFatherRule) errors["family.fatherStatus"] = correctionFatherRule;
     if (
       (input.subject["sex"] ?? "").trim().toLowerCase() === "female" &&
       !(input.subject["subjectMaidenLastName"] ?? "").trim()
@@ -410,6 +454,8 @@ export function validateCorrection(input: CorrectionCandidate): OrderValidationR
       errors["subject.subjectMaidenLastName"] =
         "Maiden last name is required when the recorded gender is Female.";
     }
+    if (!isValidDateString((input.applicant.dateOfBirth ?? "").trim()))
+      errors["applicant.dateOfBirth"] = "Requestor date of birth is required for birth records.";
   }
   const eventDate = input.subject["eventDate"] ?? "";
   if (
@@ -417,6 +463,10 @@ export function validateCorrection(input: CorrectionCandidate): OrderValidationR
     !isValidDateString(eventDate)
   ) {
     errors["subject.eventDate"] = "Please enter a valid date.";
+  }
+  if (input.certificate === "BIRTH") {
+    const correctionWindowError = birthEventDateError(eventDate.trim());
+    if (correctionWindowError) errors["subject.eventDate"] = correctionWindowError;
   }
   if (!input.applicant.firstName.trim())
     errors["applicant.firstName"] = "Please complete this required field.";
