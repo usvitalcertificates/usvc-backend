@@ -22,7 +22,7 @@ test("submission email recalls the order and explains next steps", () => {
     "Hi Jordan,",
     "September 23, 2026",
     "no action is needed",
-    "vary by state to state",
+    "vary from state to state",
   ]) {
     assert.ok(email.html.includes(needle), `html missing: ${needle}`);
     assert.ok(email.text.includes(needle), `text missing: ${needle}`);
