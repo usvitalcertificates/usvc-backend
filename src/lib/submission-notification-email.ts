@@ -53,13 +53,13 @@ export function renderSubmissionNotificationEmail(
         <tr><td style="padding:6px 0;color:#555">Submitted</td><td style="padding:6px 0">${escapeHtml(submittedDate(order.submittedAt))}</td></tr>
       </table>
       <h2 style="margin:0 0 10px;color:#3c3b6e;font-size:19px">What happens next</h2>
-      <p style="margin:0 0 10px">The agency now processes your application. Processing and delivery times vary by state to state — no action is needed from you.</p>
+      <p style="margin:0 0 10px">The agency now processes your application. Processing and delivery times vary from state to state — no action is needed from you.</p>
       <p style="margin:0 0 10px">If anything else is required, we will contact you at this email address.</p>
     </main>
   </body>
 </html>`;
 
-  const text = `Your order is on its way to the agency\n\n${greeting}\n\nGood news — we submitted your application to the government agency on ${submittedDate(order.submittedAt)}. Here are your order details for your records:\n\nOrder number: ${order.publicNumber}\nCertificate: ${certificate}\nCopies: ${copies}\nSubmitted: ${submittedDate(order.submittedAt)}\n\nWhat happens next\n\nThe agency now processes your application. Processing and delivery times vary by state to state — no action is needed from you.\n\nIf anything else is required, we will contact you at this email address.`;
+  const text = `Your order is on its way to the agency\n\n${greeting}\n\nGood news — we submitted your application to the government agency on ${submittedDate(order.submittedAt)}. Here are your order details for your records:\n\nOrder number: ${order.publicNumber}\nCertificate: ${certificate}\nCopies: ${copies}\nSubmitted: ${submittedDate(order.submittedAt)}\n\nWhat happens next\n\nThe agency now processes your application. Processing and delivery times vary from state to state — no action is needed from you.\n\nIf anything else is required, we will contact you at this email address.`;
 
   return { subject, html, text };
 }
