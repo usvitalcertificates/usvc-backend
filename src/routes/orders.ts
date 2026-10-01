@@ -88,6 +88,7 @@ ordersRouter.post("/", async (req, res, next) => {
             firstName: input.applicant.firstName,
             middleName: input.applicant.middleName ?? "",
             lastName: input.applicant.lastName,
+            suffix: input.applicant.suffix ?? "",
             dateOfBirth: input.applicant.dateOfBirth ?? "",
             phone: input.applicant.phone,
             email: input.applicant.email,
