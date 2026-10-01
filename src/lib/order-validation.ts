@@ -193,10 +193,13 @@ const REQUIRED: Record<CreateOrderInput["certificate"], { subject: string[]; fam
     family: [],
   },
   MARRIAGE: {
-    subject: ["firstName", "lastName", "eventDate"],
-    family: ["spouseFirstName", "spouseLastName"],
+    subject: ["firstName", "lastName", "eventDate", "sex", "maidenLastName"],
+    family: ["spouseFirstName", "spouseLastName", "spouseSex", "spouseMaidenLastName"],
   },
-  DIVORCE: { subject: ["firstName", "lastName"], family: ["spouseFirstName", "spouseLastName"] },
+  DIVORCE: {
+    subject: ["firstName", "lastName", "eventDate", "sex", "maidenLastName"],
+    family: ["spouseFirstName", "spouseLastName", "spouseSex", "spouseMaidenLastName"],
+  },
 };
 
 function isValidDateString(value: string): boolean {
@@ -326,19 +329,28 @@ export function validateOrderSubmission(input: CreateOrderInput): OrderValidatio
       errors["subject.eventDate"] = "Please enter a valid date.";
   }
 
-  // Every application requires a requestor SSN; every birth and every
-  // death application additionally requires the requestor date of birth.
+  // Every application requires a requestor SSN; birth, death, marriage, and
+  // divorce applications additionally require the requestor date of birth.
   if (!isPlausibleSsn((input.requestorSsn ?? "").trim())) {
     errors["requestorSsn"] = "Social Security Number is required.";
   }
-  // Every birth and every death application requires the requestor date
-  // of birth (USVR parity).
-  if (input.certificate === "BIRTH" || input.certificate === "DEATH") {
+  // Every birth, death, marriage, and divorce application requires the
+  // requestor date of birth (USVR parity).
+  if (
+    input.certificate === "BIRTH" ||
+    input.certificate === "DEATH" ||
+    input.certificate === "MARRIAGE" ||
+    input.certificate === "DIVORCE"
+  ) {
     if (!isValidDateString((input.applicant.dateOfBirth ?? "").trim()))
       errors["applicant.dateOfBirth"] =
         input.certificate === "BIRTH"
           ? "Requestor date of birth is required for birth records."
-          : "Requestor date of birth is required for death records.";
+          : input.certificate === "DEATH"
+            ? "Requestor date of birth is required for death records."
+            : input.certificate === "MARRIAGE"
+              ? "Requestor date of birth is required for marriage records."
+              : "Requestor date of birth is required for divorce records.";
   } else if (input.applicant.dateOfBirth && !isValidDateString(input.applicant.dateOfBirth)) {
     errors["applicant.dateOfBirth"] = "Please enter a valid date of birth.";
   }
@@ -468,6 +480,14 @@ export function validateCorrection(input: CorrectionCandidate): OrderValidationR
   if (input.certificate === "DEATH") {
     if (!isValidDateString((input.applicant.dateOfBirth ?? "").trim()))
       errors["applicant.dateOfBirth"] = "Requestor date of birth is required for death records.";
+  }
+  if (input.certificate === "MARRIAGE") {
+    if (!isValidDateString((input.applicant.dateOfBirth ?? "").trim()))
+      errors["applicant.dateOfBirth"] = "Requestor date of birth is required for marriage records.";
+  }
+  if (input.certificate === "DIVORCE") {
+    if (!isValidDateString((input.applicant.dateOfBirth ?? "").trim()))
+      errors["applicant.dateOfBirth"] = "Requestor date of birth is required for divorce records.";
   }
   const eventDate = input.subject["eventDate"] ?? "";
   if (
