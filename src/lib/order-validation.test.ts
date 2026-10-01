@@ -73,14 +73,46 @@ const SUBJECTS = {
       fatherStatus: "Unknown",
     },
   },
-  DEATH: { subject: { firstName: "John", lastName: "Doe", eventDate: "2024-05-01" }, family: {} },
+  DEATH: {
+    subject: {
+      firstName: "John",
+      middleName: "Michael",
+      lastName: "Doe",
+      eventDate: "2024-05-01",
+      sex: "Male",
+      race: "Caucasian (White)",
+    },
+    family: {},
+  },
   MARRIAGE: {
-    subject: { firstName: "Jane", lastName: "Doe", eventDate: "2019-06-20" },
-    family: { spouseFirstName: "John", spouseLastName: "Doe" },
+    subject: {
+      firstName: "Jane",
+      lastName: "Doe",
+      eventDate: "2019-06-20",
+      sex: "Female",
+      maidenLastName: "Smith",
+    },
+    family: {
+      spouseFirstName: "John",
+      spouseLastName: "Doe",
+      spouseSex: "Male",
+      spouseMaidenLastName: "Doe",
+    },
   },
   DIVORCE: {
-    subject: { firstName: "Jane", lastName: "Doe" },
-    family: { spouseFirstName: "John", spouseLastName: "Doe" },
+    subject: {
+      firstName: "Jane",
+      lastName: "Doe",
+      eventDate: "2021-03-10",
+      sex: "Female",
+      maidenLastName: "Smith",
+    },
+    family: {
+      spouseFirstName: "John",
+      spouseLastName: "Doe",
+      spouseSex: "Male",
+      spouseMaidenLastName: "Doe",
+    },
   },
 } as const;
 
@@ -246,6 +278,99 @@ test("enforces the birth event window (1906 through 90 days ago)", () => {
     const result = validateOrderSubmission(input);
     assert.equal(result.ok, false, eventDate);
     assert.ok(result.errors[key], eventDate);
+  }
+});
+
+test("requires requestor date of birth for every death record", () => {
+  const input = createOrderSchema.parse({
+    ...base("DEATH"),
+    ...SUBJECTS.DEATH,
+    applicant: { ...base("DEATH").applicant, dateOfBirth: "" },
+  });
+  const result = validateOrderSubmission(input);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors["applicant.dateOfBirth"]);
+});
+
+test("requires the USVR death subject fields", () => {
+  const input = createOrderSchema.parse({
+    ...base("DEATH"),
+    subject: { firstName: "John", lastName: "Doe", eventDate: "2024-05-01" },
+    family: {},
+  });
+  const result = validateOrderSubmission(input);
+  assert.equal(result.ok, false);
+  for (const key of ["subject.middleName", "subject.sex"]) {
+    assert.ok(result.errors[key], `expected error for ${key}`);
+  }
+});
+
+test("race is optional on a death record", () => {
+  const input = createOrderSchema.parse({
+    ...base("DEATH"),
+    ...SUBJECTS.DEATH,
+    subject: { ...SUBJECTS.DEATH.subject, race: "" },
+  });
+  const result = validateOrderSubmission(input);
+  assert.equal(result.ok, true, JSON.stringify(result.errors));
+});
+
+test("requires requestor date of birth for every marriage record", () => {
+  const input = createOrderSchema.parse({
+    ...base("MARRIAGE"),
+    ...SUBJECTS.MARRIAGE,
+    applicant: { ...base("MARRIAGE").applicant, dateOfBirth: "" },
+  });
+  const result = validateOrderSubmission(input);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors["applicant.dateOfBirth"]);
+});
+
+test("requires the USVR marriage subject fields", () => {
+  const input = createOrderSchema.parse({
+    ...base("MARRIAGE"),
+    subject: { firstName: "Jane", lastName: "Doe", eventDate: "2019-06-20" },
+    family: { spouseFirstName: "John", spouseLastName: "Doe" },
+  });
+  const result = validateOrderSubmission(input);
+  assert.equal(result.ok, false);
+  for (const key of [
+    "subject.sex",
+    "subject.maidenLastName",
+    "family.spouseSex",
+    "family.spouseMaidenLastName",
+  ]) {
+    assert.ok(result.errors[key], `expected error for ${key}`);
+  }
+});
+
+test("requires requestor date of birth for every divorce record", () => {
+  const input = createOrderSchema.parse({
+    ...base("DIVORCE"),
+    ...SUBJECTS.DIVORCE,
+    applicant: { ...base("DIVORCE").applicant, dateOfBirth: "" },
+  });
+  const result = validateOrderSubmission(input);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors["applicant.dateOfBirth"]);
+});
+
+test("requires the USVR divorce subject fields", () => {
+  const input = createOrderSchema.parse({
+    ...base("DIVORCE"),
+    subject: { firstName: "Jane", lastName: "Doe" },
+    family: { spouseFirstName: "John", spouseLastName: "Doe" },
+  });
+  const result = validateOrderSubmission(input);
+  assert.equal(result.ok, false);
+  for (const key of [
+    "subject.eventDate",
+    "subject.sex",
+    "subject.maidenLastName",
+    "family.spouseSex",
+    "family.spouseMaidenLastName",
+  ]) {
+    assert.ok(result.errors[key], `expected error for ${key}`);
   }
 });
 
