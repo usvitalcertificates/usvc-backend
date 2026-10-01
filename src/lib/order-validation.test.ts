@@ -22,6 +22,7 @@ function base(certificate: "BIRTH" | "DEATH" | "MARRIAGE" | "DIVORCE" = "BIRTH")
       relationship: "Parent",
       firstName: "Jane",
       lastName: "Doe",
+      dateOfBirth: "1990-05-20",
       phone: "+15550100100",
       email: "jane@example.com",
     },
@@ -55,7 +56,16 @@ function base(certificate: "BIRTH" | "DEATH" | "MARRIAGE" | "DIVORCE" = "BIRTH")
 
 const SUBJECTS = {
   BIRTH: {
-    subject: { firstName: "Baby", lastName: "Doe", suffix: "None", eventDate: "2020-01-15" },
+    subject: {
+      firstName: "Baby",
+      middleName: "Ann",
+      lastName: "Doe",
+      suffix: "None",
+      eventDate: "2020-01-15",
+      sex: "Female",
+      subjectMaidenLastName: "Doe",
+      stillLiving: "Yes",
+    },
     family: {
       motherFirstName: "Jane",
       motherCurrentLastName: "Doe",
@@ -101,7 +111,15 @@ test("does not require a birth subject suffix", () => {
   const input = createOrderSchema.parse({
     ...base("BIRTH"),
     ...SUBJECTS.BIRTH,
-    subject: { firstName: "Baby", lastName: "Doe", eventDate: "2020-01-15" },
+    subject: {
+      firstName: "Baby",
+      middleName: "Ann",
+      lastName: "Doe",
+      eventDate: "2020-01-15",
+      sex: "Female",
+      subjectMaidenLastName: "Doe",
+      stillLiving: "Yes",
+    },
   });
   const result = validateOrderSubmission(input);
   assert.equal(result.ok, true, JSON.stringify(result.errors));
@@ -159,6 +177,76 @@ test("requires father names when father status is known", () => {
   const result = validateOrderSubmission(input);
   assert.equal(result.ok, false);
   assert.ok(result.errors["family.fatherFirstName"]);
+});
+
+test("requires requestor date of birth for every birth record", () => {
+  const input = createOrderSchema.parse({
+    ...base("BIRTH"),
+    ...SUBJECTS.BIRTH,
+    applicant: { ...base("BIRTH").applicant, dateOfBirth: "" },
+  });
+  const result = validateOrderSubmission(input);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors["applicant.dateOfBirth"]);
+});
+
+test("requires the USVR birth subject fields", () => {
+  const input = createOrderSchema.parse({
+    ...base("BIRTH"),
+    subject: { firstName: "Baby", lastName: "Doe", eventDate: "2020-01-15", sex: "Female" },
+    family: {
+      motherFirstName: "Jane",
+      motherCurrentLastName: "Doe",
+      motherLastName: "Smith",
+      fatherStatus: "Unknown",
+    },
+  });
+  const result = validateOrderSubmission(input);
+  assert.equal(result.ok, false);
+  for (const key of [
+    "subject.middleName",
+    "subject.subjectMaidenLastName",
+    "subject.stillLiving",
+  ]) {
+    assert.ok(result.errors[key], `expected error for ${key}`);
+  }
+});
+
+test("maiden name is optional for a Male birth subject", () => {
+  const input = createOrderSchema.parse({
+    ...base("BIRTH"),
+    ...SUBJECTS.BIRTH,
+    subject: { ...SUBJECTS.BIRTH.subject, sex: "Male", subjectMaidenLastName: "" },
+  });
+  const result = validateOrderSubmission(input);
+  assert.equal(result.ok, true, JSON.stringify(result.errors));
+});
+
+test("rejects unknown father when the requestor is the father", () => {
+  const input = createOrderSchema.parse({
+    ...base("BIRTH"),
+    ...SUBJECTS.BIRTH,
+    applicant: { ...base("BIRTH").applicant, relationship: "Father" },
+  });
+  const result = validateOrderSubmission(input);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors["family.fatherStatus"]);
+});
+
+test("enforces the birth event window (1906 through 90 days ago)", () => {
+  for (const [eventDate, key] of [
+    ["1905-12-31", "subject.eventDate"],
+    [new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10), "subject.eventDate"],
+  ] as const) {
+    const input = createOrderSchema.parse({
+      ...base("BIRTH"),
+      ...SUBJECTS.BIRTH,
+      subject: { ...SUBJECTS.BIRTH.subject, eventDate },
+    });
+    const result = validateOrderSubmission(input);
+    assert.equal(result.ok, false, eventDate);
+    assert.ok(result.errors[key], eventDate);
+  }
 });
 
 test("rejects wrong totals", () => {
