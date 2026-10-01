@@ -73,7 +73,17 @@ const SUBJECTS = {
       fatherStatus: "Unknown",
     },
   },
-  DEATH: { subject: { firstName: "John", lastName: "Doe", eventDate: "2024-05-01" }, family: {} },
+  DEATH: {
+    subject: {
+      firstName: "John",
+      middleName: "Michael",
+      lastName: "Doe",
+      eventDate: "2024-05-01",
+      sex: "Male",
+      race: "Caucasian (White)",
+    },
+    family: {},
+  },
   MARRIAGE: {
     subject: { firstName: "Jane", lastName: "Doe", eventDate: "2019-06-20" },
     family: { spouseFirstName: "John", spouseLastName: "Doe" },
@@ -247,6 +257,40 @@ test("enforces the birth event window (1906 through 90 days ago)", () => {
     assert.equal(result.ok, false, eventDate);
     assert.ok(result.errors[key], eventDate);
   }
+});
+
+test("requires requestor date of birth for every death record", () => {
+  const input = createOrderSchema.parse({
+    ...base("DEATH"),
+    ...SUBJECTS.DEATH,
+    applicant: { ...base("DEATH").applicant, dateOfBirth: "" },
+  });
+  const result = validateOrderSubmission(input);
+  assert.equal(result.ok, false);
+  assert.ok(result.errors["applicant.dateOfBirth"]);
+});
+
+test("requires the USVR death subject fields", () => {
+  const input = createOrderSchema.parse({
+    ...base("DEATH"),
+    subject: { firstName: "John", lastName: "Doe", eventDate: "2024-05-01" },
+    family: {},
+  });
+  const result = validateOrderSubmission(input);
+  assert.equal(result.ok, false);
+  for (const key of ["subject.middleName", "subject.sex"]) {
+    assert.ok(result.errors[key], `expected error for ${key}`);
+  }
+});
+
+test("race is optional on a death record", () => {
+  const input = createOrderSchema.parse({
+    ...base("DEATH"),
+    ...SUBJECTS.DEATH,
+    subject: { ...SUBJECTS.DEATH.subject, race: "" },
+  });
+  const result = validateOrderSubmission(input);
+  assert.equal(result.ok, true, JSON.stringify(result.errors));
 });
 
 test("rejects wrong totals", () => {

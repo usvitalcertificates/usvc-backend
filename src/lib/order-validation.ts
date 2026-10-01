@@ -188,7 +188,10 @@ const REQUIRED: Record<CreateOrderInput["certificate"], { subject: string[]; fam
     subject: ["firstName", "middleName", "lastName", "eventDate", "sex", "stillLiving"],
     family: ["motherFirstName", "motherCurrentLastName", "motherLastName"],
   },
-  DEATH: { subject: ["firstName", "lastName", "eventDate"], family: [] },
+  DEATH: {
+    subject: ["firstName", "middleName", "lastName", "eventDate", "sex"],
+    family: [],
+  },
   MARRIAGE: {
     subject: ["firstName", "lastName", "eventDate"],
     family: ["spouseFirstName", "spouseLastName"],
@@ -323,14 +326,19 @@ export function validateOrderSubmission(input: CreateOrderInput): OrderValidatio
       errors["subject.eventDate"] = "Please enter a valid date.";
   }
 
-  // Every application requires a requestor SSN; every birth application
-  // additionally requires the requestor date of birth (USVR parity).
+  // Every application requires a requestor SSN; every birth and every
+  // death application additionally requires the requestor date of birth.
   if (!isPlausibleSsn((input.requestorSsn ?? "").trim())) {
     errors["requestorSsn"] = "Social Security Number is required.";
   }
-  if (input.certificate === "BIRTH") {
+  // Every birth and every death application requires the requestor date
+  // of birth (USVR parity).
+  if (input.certificate === "BIRTH" || input.certificate === "DEATH") {
     if (!isValidDateString((input.applicant.dateOfBirth ?? "").trim()))
-      errors["applicant.dateOfBirth"] = "Requestor date of birth is required for birth records.";
+      errors["applicant.dateOfBirth"] =
+        input.certificate === "BIRTH"
+          ? "Requestor date of birth is required for birth records."
+          : "Requestor date of birth is required for death records.";
   } else if (input.applicant.dateOfBirth && !isValidDateString(input.applicant.dateOfBirth)) {
     errors["applicant.dateOfBirth"] = "Please enter a valid date of birth.";
   }
@@ -456,6 +464,10 @@ export function validateCorrection(input: CorrectionCandidate): OrderValidationR
     }
     if (!isValidDateString((input.applicant.dateOfBirth ?? "").trim()))
       errors["applicant.dateOfBirth"] = "Requestor date of birth is required for birth records.";
+  }
+  if (input.certificate === "DEATH") {
+    if (!isValidDateString((input.applicant.dateOfBirth ?? "").trim()))
+      errors["applicant.dateOfBirth"] = "Requestor date of birth is required for death records.";
   }
   const eventDate = input.subject["eventDate"] ?? "";
   if (
