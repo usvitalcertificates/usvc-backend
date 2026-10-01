@@ -40,7 +40,6 @@ function base(certificate: "BIRTH" | "DEATH" | "MARRIAGE" | "DIVORCE" = "BIRTH")
       terms: true,
       privacy: true,
       refund: true,
-      independent: true,
       processingPayment: true,
     },
     processingAuthorization: {
@@ -83,18 +82,19 @@ for (const cert of ["BIRTH", "DEATH", "MARRIAGE", "DIVORCE"] as const) {
   });
 }
 
-test("defaults the optional OpenAI email-matching consent to false", () => {
-  const input = createOrderSchema.parse({ ...base("BIRTH"), ...SUBJECTS.BIRTH });
-  assert.equal(input.consents.openAiEmailMatching, false);
-});
-
-test("accepts explicit OpenAI email-matching consent", () => {
+test("strips legacy consent fields without failing validation", () => {
   const input = createOrderSchema.parse({
     ...base("BIRTH"),
     ...SUBJECTS.BIRTH,
-    consents: { ...base("BIRTH").consents, openAiEmailMatching: true },
+    consents: {
+      ...base("BIRTH").consents,
+      independent: true,
+      openAiEmailMatching: true,
+    },
   });
-  assert.equal(input.consents.openAiEmailMatching, true);
+  assert.equal((input.consents as Record<string, unknown>).independent, undefined);
+  assert.equal((input.consents as Record<string, unknown>).openAiEmailMatching, undefined);
+  assert.equal(validateOrderSubmission(input).ok, true);
 });
 
 test("does not require a birth subject suffix", () => {
@@ -246,7 +246,6 @@ test("order document stores secrets only as ciphertext in confidentialData", () 
       terms: true,
       privacy: true,
       refund: true,
-      independent: true,
       processingPayment: true,
     },
     signature: "T R",
