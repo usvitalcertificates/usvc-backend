@@ -121,7 +121,6 @@ webhookRouter.post("/stripe", async (req, res, next) => {
               "analytics.openAiEventId": 1,
               "analytics.openAiOppref": 1,
               "analytics.openAiObref": 1,
-              "consents.openAiEmailMatching": 1,
             },
             { session },
           ).lean();
@@ -216,7 +215,7 @@ webhookRouter.post("/stripe", async (req, res, next) => {
                   copies: order.copies,
                   oppref: order.analytics?.openAiOppref ?? "",
                   obref: order.analytics?.openAiObref ?? "",
-                  ...(order.consents?.openAiEmailMatching && order.applicant?.email?.trim()
+                  ...(order.applicant?.email?.trim()
                     ? { emailHash: hashOpenAIEmail(order.applicant.email) }
                     : {}),
                   status: "PENDING",

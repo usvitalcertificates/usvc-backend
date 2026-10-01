@@ -143,9 +143,7 @@ export const createOrderSchema = z.object({
     terms: z.boolean(),
     privacy: z.boolean(),
     refund: z.boolean(),
-    independent: z.boolean(),
     processingPayment: z.boolean(),
-    openAiEmailMatching: z.boolean().optional().default(false),
   }),
   processingAuthorization: z.object({
     accepted: z.literal(true),
@@ -316,15 +314,7 @@ export function validateOrderSubmission(input: CreateOrderInput): OrderValidatio
   }
 
   const c = input.consents;
-  if (
-    !c.accurate ||
-    !c.govtId ||
-    !c.terms ||
-    !c.privacy ||
-    !c.refund ||
-    !c.independent ||
-    !c.processingPayment
-  ) {
+  if (!c.accurate || !c.govtId || !c.terms || !c.privacy || !c.refund || !c.processingPayment) {
     errors["consents"] = "Please complete the required certification statements.";
   }
   if (!input.signature.trim())

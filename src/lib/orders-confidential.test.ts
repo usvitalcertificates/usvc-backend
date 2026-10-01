@@ -30,7 +30,6 @@ function baseOrder() {
       terms: true,
       privacy: true,
       refund: true,
-      independent: true,
       processingPayment: true,
     },
     signature: "T R",
