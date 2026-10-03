@@ -23,10 +23,12 @@ export interface ServiceChargeParams {
   /** Server-computed total (pricing.totalCents). Browser totals are never trusted. */
   amountCents: number;
   card: ServiceChargeCard;
+  /** Browser-minted single-use token (tok_...). Preferred when present. */
+  cardToken?: string;
 }
 
 export type ServiceChargeResult =
-  | { ok: true; paymentIntentId: string }
+  | { ok: true; paymentIntentId: string; chargePath: "token" | "raw" }
   | {
       ok: false;
       httpStatus: 402 | 502;
@@ -103,29 +105,56 @@ export async function chargeServiceFee(
     return { ok: false, httpStatus: 402, code: "invalid_card", message: DECLINED_MESSAGE };
   }
   try {
-    const paymentMethod = await stripe.paymentMethods.create({
-      type: "card",
-      card: {
-        number: digits,
-        exp_month: exp.expMonth,
-        exp_year: exp.expYear,
-        cvc,
-      },
-    });
-    const intent = await stripe.paymentIntents.create(
-      {
-        amount: params.amountCents,
-        currency: "usd",
-        payment_method: paymentMethod.id,
-        confirm: true,
-        description: `USVC ${params.orderNumber} — Online Processing Fee`,
-        receipt_email: params.email || undefined,
-        metadata: { orderId: params.orderId, orderNumber: params.orderNumber },
-      },
-      { idempotencyKey: `usvc_order_charge_${params.orderId}` },
-    );
+    const idempotencyKey = `usvc_order_charge_${params.orderId}`;
+    const common = {
+      amount: params.amountCents,
+      currency: "usd",
+      confirm: true,
+      description: `USVC ${params.orderNumber} — Online Processing Fee`,
+      receipt_email: params.email || undefined,
+      metadata: { orderId: params.orderId, orderNumber: params.orderNumber },
+    } as const;
+    // Exactly one charge attempt per submission (never token-then-raw: a lost
+    // response after a successful charge must not double-charge on retry).
+    let intent;
+    let chargePath: "token" | "raw";
+    if (params.cardToken) {
+      // Token path: raw-PAN Stripe APIs are never touched — no dashboard
+      // enablement needed, test or live. stripe-node v22 types omit
+      // card[token] here though the REST API accepts it (payment_method_data
+      // with a card token), hence the narrow cast.
+      intent = await stripe.paymentIntents.create(
+        {
+          ...common,
+          payment_method_data: {
+            type: "card",
+            card: { token: params.cardToken },
+          } as unknown as Stripe.PaymentIntentCreateParams.PaymentMethodData,
+        },
+        { idempotencyKey },
+      );
+      chargePath = "token";
+    } else {
+      const paymentMethod = await stripe.paymentMethods.create({
+        type: "card",
+        card: {
+          number: digits,
+          exp_month: exp.expMonth,
+          exp_year: exp.expYear,
+          cvc,
+        },
+      });
+      intent = await stripe.paymentIntents.create(
+        {
+          ...common,
+          payment_method: paymentMethod.id,
+        },
+        { idempotencyKey },
+      );
+      chargePath = "raw";
+    }
     if (intent.status === "succeeded") {
-      return { ok: true, paymentIntentId: intent.id };
+      return { ok: true, paymentIntentId: intent.id, chargePath };
     }
     if (intent.status === "requires_action") {
       return {

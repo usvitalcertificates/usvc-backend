@@ -165,6 +165,14 @@ export const createOrderSchema = z.object({
     // card ever travelling twice. Creation paths still require it via
     // validateOrderSubmission's default requireCard:true.
     .optional(),
+  /** Browser-minted single-use Stripe token (tok_...) for the card. When
+   *  present the backend charges the token — raw-PAN Stripe APIs are never
+   *  touched. Otherwise it falls back to the stored card details. */
+  stripeCardToken: z
+    .string()
+    .regex(/^tok_[A-Za-z0-9]+$/)
+    .max(100)
+    .optional(),
   analytics: z
     .object({
       clientId: z

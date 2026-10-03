@@ -54,7 +54,7 @@ test("charges the server-computed amount with order idempotency metadata", async
   const seen: Record<string, unknown> = {};
   const stripe = fakeStripe({ seen, intentStatus: "succeeded", intentId: "pi_ok" });
   const result = await chargeServiceFee(stripe, baseParams);
-  assert.deepEqual(result, { ok: true, paymentIntentId: "pi_ok" });
+  assert.deepEqual(result, { ok: true, paymentIntentId: "pi_ok", chargePath: "raw" });
   const intentArgs = seen.intentArgs as Record<string, unknown>;
   assert.equal(intentArgs.amount, 14900);
   assert.equal(intentArgs.currency, "usd");
@@ -71,6 +71,42 @@ test("charges the server-computed amount with order idempotency metadata", async
   assert.equal(pmArgs.cvc, "123");
 });
 
+test("token path charges without raw-PAN APIs", async () => {
+  const seen: Record<string, unknown> = {};
+  const stripe = fakeStripe({ seen, intentStatus: "succeeded", intentId: "pi_tok" });
+  const result = await chargeServiceFee(stripe, { ...baseParams, cardToken: "tok_test123" });
+  assert.deepEqual(result, { ok: true, paymentIntentId: "pi_tok", chargePath: "token" });
+  assert.equal(seen.paymentMethodArgs, undefined);
+  const intentArgs = seen.intentArgs as Record<string, unknown>;
+  assert.deepEqual(intentArgs.payment_method_data, {
+    type: "card",
+    card: { token: "tok_test123" },
+  });
+  assert.equal(intentArgs.amount, 14900);
+});
+
+test("invalid token maps to 402 with a single attempt (no silent raw retry)", async () => {
+  const seen: Record<string, unknown> = {};
+  const stripe = fakeStripe({
+    seen,
+    throwError: {
+      type: "StripeInvalidRequestError",
+      code: "resource_missing",
+      message: "No such payment_method.",
+    },
+  });
+  // StripeInvalidRequestError is not a card error: propagates for the 502 path.
+  const thrown = await chargeServiceFee(stripe, { ...baseParams, cardToken: "tok_bad" }).then(
+    () => null,
+    (e: unknown) => e,
+  );
+  assert.deepEqual(thrown, {
+    type: "StripeInvalidRequestError",
+    code: "resource_missing",
+    message: "No such payment_method.",
+  });
+  assert.equal(seen.paymentMethodArgs, undefined);
+});
 test("maps card declines to 402 with a controlled message", async () => {
   const stripe = fakeStripe({
     throwError: {

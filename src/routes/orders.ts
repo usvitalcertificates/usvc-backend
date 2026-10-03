@@ -148,7 +148,8 @@ ordersRouter.post("/", async (req, res, next) => {
     }
     if (!order) throw new Error("Order could not be created.");
 
-    // Straight-through payment: charge the service fee synchronously from the
+    // Straight-through payment: charge the service fee synchronously, preferring
+    // a browser-minted token (no raw-PAN Stripe APIs) and falling back to the
     // stored card details. Amount is server-computed; browser totals are never
     // trusted. The payment_intent.succeeded webhook converges on the same PAID
     // state idempotently; confirmation email + analytics outboxes ride it.
@@ -164,6 +165,7 @@ ordersRouter.post("/", async (req, res, next) => {
           expiry: card.expiry,
           securityCode: card.securityCode,
         },
+        cardToken: input.stripeCardToken,
       });
     } catch {
       // Processor/infra failure (not a decline): order stays PENDING so the
@@ -182,7 +184,7 @@ ordersRouter.post("/", async (req, res, next) => {
       order.customerTimeline.orderReceivedAt = paidAt;
       order.auditEvents.push({
         action: "payment_confirmed_direct",
-        metadata: { paymentIntentId: charge.paymentIntentId },
+        metadata: { paymentIntentId: charge.paymentIntentId, chargePath: charge.chargePath },
         createdAt: paidAt,
       });
       await order.save();
@@ -202,6 +204,7 @@ ordersRouter.post("/", async (req, res, next) => {
       scope: "direct-charge",
       orderId: order._id.toHexString(),
       code: charge.code,
+      chargePath: input.stripeCardToken ? "token" : "raw",
     });
     order.paymentStatus = "FAILED";
     order.auditEvents.push({
