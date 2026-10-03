@@ -160,6 +160,10 @@ const OrderSchema = new Schema(
     },
     stripePaymentIntentId: { type: String, sparse: true, unique: true },
     stripeCheckoutSessionId: { type: String, sparse: true, unique: true },
+    /** Synchronous charge attempts (straight-through payment). Incremented
+     *  atomically per attempt so each Stripe call carries a distinct
+     *  idempotency key — retries never collide with a previous attempt. */
+    chargeAttempts: { type: Number, default: 0 },
     notes: [{ authorId: String, body: String, createdAt: { type: Date, default: Date.now } }],
     auditEvents: [
       {
