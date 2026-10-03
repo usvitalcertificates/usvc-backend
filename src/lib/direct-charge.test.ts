@@ -59,6 +59,10 @@ test("charges the server-computed amount with order idempotency metadata", async
   assert.equal(intentArgs.amount, 14900);
   assert.equal(intentArgs.currency, "usd");
   assert.equal(intentArgs.confirm, true);
+  assert.deepEqual(intentArgs.automatic_payment_methods, {
+    enabled: true,
+    allow_redirects: "never",
+  });
   assert.deepEqual((intentArgs.metadata as Record<string, string>).orderId, "order123");
   assert.deepEqual(
     (seen.intentOpts as Record<string, string>).idempotencyKey,
