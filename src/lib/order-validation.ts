@@ -191,6 +191,13 @@ export const createOrderSchema = z.object({
     .optional(),
   /** Client display total; server recomputes and rejects mismatches. Never trusted. */
   totalCents: z.number().int().min(0),
+  /** Idempotency key per form fill (uuid). Retries with the same key update
+   *  the unpaid order instead of creating a duplicate. */
+  submissionKey: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{16,100}$/)
+    .max(100)
+    .optional(),
 });
 
 export type CreateOrderInput = z.infer<typeof createOrderSchema>;
