@@ -12,6 +12,7 @@ import {
   validateOrderSubmission,
 } from "../lib/order-validation.js";
 import { Order } from "../models/order.js";
+import { chargeServiceFee } from "../lib/direct-charge.js";
 import { EmailOutbox } from "../models/email-outbox.js";
 import { nextOrderSequence } from "../models/counter.js";
 import { ApiError } from "../middleware/errors.js";
@@ -140,11 +141,66 @@ ordersRouter.post("/", async (req, res, next) => {
     }
     if (!order) throw new Error("Order could not be created.");
 
-    res.status(201).json({
-      id: order._id.toHexString(),
-      publicNumber: order.publicNumber,
-      amountCents: order.amountCents,
-      openAiEventId: order.analytics?.openAiEventId ?? "",
+    // Straight-through payment: charge the service fee synchronously from the
+    // stored card details. Amount is server-computed; browser totals are never
+    // trusted. The payment_intent.succeeded webhook converges on the same PAID
+    // state idempotently; confirmation email + analytics outboxes ride it.
+    let charge: Awaited<ReturnType<typeof chargeServiceFee>>;
+    try {
+      charge = await chargeServiceFee(stripe, {
+        orderId: order._id.toHexString(),
+        orderNumber: order.publicNumber,
+        email: order.applicant.email,
+        amountCents: pricing.totalCents,
+        card: {
+          number: input.paymentCard.number,
+          expiry: input.paymentCard.expiry,
+          securityCode: input.paymentCard.securityCode,
+        },
+      });
+    } catch {
+      // Processor/infra failure (not a decline): order stays PENDING so the
+      // customer can retry; never surface internals.
+      return res.status(502).json({
+        message: "Payment could not be processed right now. Please try again in a moment.",
+      });
+    }
+    if (charge.ok) {
+      order.paymentStatus = "PAID";
+      order.status = "PAID";
+      order.stripePaymentIntentId = charge.paymentIntentId;
+      const paidAt = new Date();
+      order.customerTimeline ??= {};
+      order.customerTimeline.paymentSuccessfulAt = paidAt;
+      order.customerTimeline.orderReceivedAt = paidAt;
+      order.auditEvents.push({
+        action: "payment_confirmed_direct",
+        metadata: { paymentIntentId: charge.paymentIntentId },
+        createdAt: paidAt,
+      });
+      await order.save();
+      return res.status(201).json({
+        id: order._id.toHexString(),
+        publicNumber: order.publicNumber,
+        amountCents: order.amountCents,
+        openAiEventId: order.analytics?.openAiEventId ?? "",
+        paid: true as const,
+      });
+    }
+    // Decline / verification-needed: order stays recorded but unpaid; the
+    // customer re-enters card details on the form (never retained client-side).
+    order.paymentStatus = "FAILED";
+    order.auditEvents.push({
+      action: "payment_failed_direct",
+      metadata: { code: charge.code },
+      createdAt: new Date(),
+    });
+    await order.save();
+    return res.status(charge.httpStatus).json({
+      message: charge.message,
+      errors: { "paymentCard.number": charge.message },
+      paymentFailureCode: charge.code,
+      paid: false as const,
     });
   } catch (e) {
     next(e);
