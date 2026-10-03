@@ -51,8 +51,33 @@ export function parseCardExpiry(expiry: string): { expMonth: number; expYear: nu
   return { expMonth: Number(match[1]), expYear: 2000 + Number(match[2]) };
 }
 
-function isStripeCardError(e: unknown): e is { code?: string } {
+function isStripeCardError(e: unknown): e is {
+  type?: string;
+  code?: string;
+  decline_code?: string;
+  message?: unknown;
+} {
   return typeof e === "object" && e !== null && (e as { type?: string }).type === "StripeCardError";
+}
+
+/** Server-side only debug trace. Picked scalar fields — never the whole error
+ *  object, never the request, never PAN. Visible in the backend terminal /
+ *  Render logs; customers only ever see the controlled messages below. */
+function logProcessorDetail(params: {
+  orderId: string;
+  code: string;
+  stripeType?: string;
+  processorMessage?: string;
+  declineCode?: string;
+}) {
+  console.error({
+    scope: "direct-charge",
+    orderId: params.orderId,
+    code: params.code,
+    ...(params.stripeType ? { stripeType: params.stripeType } : {}),
+    ...(params.declineCode ? { declineCode: params.declineCode } : {}),
+    ...(params.processorMessage ? { processorMessage: params.processorMessage } : {}),
+  });
 }
 
 /** Processor decline codes mapped to our own controlled texts. Processor
@@ -114,6 +139,13 @@ export async function chargeServiceFee(
   } catch (e) {
     if (isStripeCardError(e)) {
       const code = e.code ?? "card_declined";
+      logProcessorDetail({
+        orderId: params.orderId,
+        code,
+        stripeType: "StripeCardError",
+        declineCode: e.decline_code,
+        processorMessage: typeof e.message === "string" ? e.message : undefined,
+      });
       return {
         ok: false,
         httpStatus: 402,

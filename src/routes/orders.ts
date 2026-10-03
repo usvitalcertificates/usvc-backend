@@ -196,6 +196,13 @@ ordersRouter.post("/", async (req, res, next) => {
     }
     // Decline / verification-needed: order stays recorded but unpaid; the
     // customer re-enters card details on the form (never retained client-side).
+    // Terminal trace for debugging (code only — never PAN); UI gets the
+    // controlled message above.
+    console.error({
+      scope: "direct-charge",
+      orderId: order._id.toHexString(),
+      code: charge.code,
+    });
     order.paymentStatus = "FAILED";
     order.auditEvents.push({
       action: "payment_failed_direct",

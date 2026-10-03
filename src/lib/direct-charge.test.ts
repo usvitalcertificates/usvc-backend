@@ -133,6 +133,42 @@ test("rejects malformed card input without calling Stripe", async () => {
   assert.equal(seen.paymentMethodArgs, undefined);
 });
 
+test("logs the exact processor detail server-side without card data", async () => {
+  const lines: unknown[] = [];
+  const original = console.error;
+  console.error = (...args: unknown[]) => {
+    lines.push(args[0]);
+  };
+  try {
+    const stripe = fakeStripe({
+      throwError: {
+        type: "StripeCardError",
+        code: "card_declined",
+        decline_code: "generic_decline",
+        message: "Processor internal text.",
+      },
+    });
+    await chargeServiceFee(stripe, baseParams);
+  } finally {
+    console.error = original;
+  }
+  assert.equal(lines.length, 1);
+  const logged = lines[0] as Record<string, unknown>;
+  assert.equal(logged.scope, "direct-charge");
+  assert.equal(logged.orderId, "order123");
+  assert.equal(logged.declineCode, "generic_decline");
+  assert.equal(logged.processorMessage, "Processor internal text.");
+  assert.deepEqual(Object.keys(logged).sort(), [
+    "code",
+    "declineCode",
+    "orderId",
+    "processorMessage",
+    "scope",
+    "stripeType",
+  ]);
+  assert.ok(!JSON.stringify(logged).includes("4111111111111111"), "no PAN in log");
+});
+
 test("processor errors propagate for a 502", async () => {
   const stripe = fakeStripe({ throwError: { type: "StripeAPIError", message: "boom" } });
   const thrown = await chargeServiceFee(stripe, baseParams).then(
