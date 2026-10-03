@@ -252,13 +252,20 @@ test("requires the USVR birth subject fields", () => {
   });
   const result = validateOrderSubmission(input);
   assert.equal(result.ok, false);
-  for (const key of [
-    "subject.middleName",
-    "subject.subjectMaidenLastName",
-    "subject.stillLiving",
-  ]) {
+  for (const key of ["subject.subjectMaidenLastName", "subject.stillLiving"]) {
     assert.ok(result.errors[key], `expected error for ${key}`);
   }
+  assert.equal(result.errors["subject.middleName"], undefined);
+});
+
+test("subject middle name is optional", () => {
+  const input = createOrderSchema.parse({
+    ...base("BIRTH"),
+    ...SUBJECTS.BIRTH,
+    subject: { ...SUBJECTS.BIRTH.subject, middleName: "" },
+  });
+  const result = validateOrderSubmission(input);
+  assert.equal(result.errors["subject.middleName"], undefined);
 });
 
 test("maiden name is optional for a Male birth subject", () => {
@@ -317,9 +324,8 @@ test("requires the USVR death subject fields", () => {
   });
   const result = validateOrderSubmission(input);
   assert.equal(result.ok, false);
-  for (const key of ["subject.middleName", "subject.sex"]) {
-    assert.ok(result.errors[key], `expected error for ${key}`);
-  }
+  assert.ok(result.errors["subject.sex"], "expected error for subject.sex");
+  assert.equal(result.errors["subject.middleName"], undefined);
 });
 
 test("race is optional on a death record", () => {

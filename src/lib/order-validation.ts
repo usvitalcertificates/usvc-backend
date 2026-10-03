@@ -198,11 +198,11 @@ export type CreateOrderInput = z.infer<typeof createOrderSchema>;
 /** Required subject/family keys per certificate, ported from reference form-config. */
 const REQUIRED: Record<CreateOrderInput["certificate"], { subject: string[]; family: string[] }> = {
   BIRTH: {
-    subject: ["firstName", "middleName", "lastName", "eventDate", "sex", "stillLiving"],
+    subject: ["firstName", "lastName", "eventDate", "sex", "stillLiving"],
     family: ["motherFirstName", "motherCurrentLastName", "motherLastName"],
   },
   DEATH: {
-    subject: ["firstName", "middleName", "lastName", "eventDate", "sex"],
+    subject: ["firstName", "lastName", "eventDate", "sex"],
     family: [],
   },
   MARRIAGE: {
