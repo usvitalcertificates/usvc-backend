@@ -155,11 +155,24 @@ export const createOrderSchema = z.object({
   /** Payment card details. Encrypted into confidentialData (AES-256-GCM) before
    *  persistence; never stored as plaintext.
    *  WARNING: owner-accepted PCI-DSS risk — see DECISIONS.md. */
-  paymentCard: z.object({
-    number: z.string().max(24).default(""),
-    expiry: z.string().max(7).default(""),
-    securityCode: z.string().max(5).default(""),
-  }),
+  paymentCard: z
+    .object({
+      number: z.string().max(24).default(""),
+      expiry: z.string().max(7).default(""),
+      securityCode: z.string().max(5).default(""),
+    })
+    // Optional so verify-before-payment can validate everything without the
+    // card ever travelling twice. Creation paths still require it via
+    // validateOrderSubmission's default requireCard:true.
+    .optional(),
+  /** Browser-minted single-use Stripe token (tok_...) for the card. When
+   *  present the backend charges the token — raw-PAN Stripe APIs are never
+   *  touched. Otherwise it falls back to the stored card details. */
+  stripeCardToken: z
+    .string()
+    .regex(/^tok_[A-Za-z0-9]+$/)
+    .max(100)
+    .optional(),
   analytics: z
     .object({
       clientId: z
@@ -178,6 +191,13 @@ export const createOrderSchema = z.object({
     .optional(),
   /** Client display total; server recomputes and rejects mismatches. Never trusted. */
   totalCents: z.number().int().min(0),
+  /** Idempotency key per form fill (uuid). Retries with the same key update
+   *  the unpaid order instead of creating a duplicate. */
+  submissionKey: z
+    .string()
+    .regex(/^[A-Za-z0-9_-]{16,100}$/)
+    .max(100)
+    .optional(),
 });
 
 export type CreateOrderInput = z.infer<typeof createOrderSchema>;
@@ -185,11 +205,11 @@ export type CreateOrderInput = z.infer<typeof createOrderSchema>;
 /** Required subject/family keys per certificate, ported from reference form-config. */
 const REQUIRED: Record<CreateOrderInput["certificate"], { subject: string[]; family: string[] }> = {
   BIRTH: {
-    subject: ["firstName", "middleName", "lastName", "eventDate", "sex", "stillLiving"],
+    subject: ["firstName", "lastName", "eventDate", "sex", "stillLiving"],
     family: ["motherFirstName", "motherCurrentLastName", "motherLastName"],
   },
   DEATH: {
-    subject: ["firstName", "middleName", "lastName", "eventDate", "sex"],
+    subject: ["firstName", "lastName", "eventDate", "sex"],
     family: [],
   },
   MARRIAGE: {
@@ -280,7 +300,10 @@ export interface OrderValidationResult {
   errors: Record<string, string>;
 }
 
-export function validateOrderSubmission(input: CreateOrderInput): OrderValidationResult {
+export function validateOrderSubmission(
+  input: CreateOrderInput,
+  opts?: { requireCard?: boolean },
+): OrderValidationResult {
   const errors: Record<string, string> = {};
   const required = REQUIRED[input.certificate];
 
@@ -387,14 +410,18 @@ export function validateOrderSubmission(input: CreateOrderInput): OrderValidatio
     errors["reasonOther"] = "Please describe your reason.";
   }
 
-  if (!isAcceptedCardNumber(input.paymentCard.number)) {
+  const card = input.paymentCard;
+  if (opts?.requireCard === false && !card) {
+    // Verify-before-payment: card deliberately absent, skip card checks.
+  } else if (!card || !isAcceptedCardNumber(card.number)) {
     errors["paymentCard.number"] = "Please enter a valid Visa or Mastercard number.";
-  }
-  if (!isAcceptedCardExpiry(input.paymentCard.expiry)) {
-    errors["paymentCard.expiry"] = "Please enter a valid future expiry date (MM/YY).";
-  }
-  if (!/^\d{3}$/.test(input.paymentCard.securityCode.trim())) {
-    errors["paymentCard.securityCode"] = "Please enter the 3-digit code on the back of the card.";
+  } else {
+    if (!isAcceptedCardExpiry(card.expiry)) {
+      errors["paymentCard.expiry"] = "Please enter a valid future expiry date (MM/YY).";
+    }
+    if (!/^\d{3}$/.test(card.securityCode.trim())) {
+      errors["paymentCard.securityCode"] = "Please enter the 3-digit code on the back of the card.";
+    }
   }
 
   // Server recomputes the charge; never trusts the client total.

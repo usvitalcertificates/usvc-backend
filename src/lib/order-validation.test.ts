@@ -124,6 +124,23 @@ for (const cert of ["BIRTH", "DEATH", "MARRIAGE", "DIVORCE"] as const) {
   });
 }
 
+test("verify-before-payment skips card checks when the card is absent", () => {
+  const { paymentCard: _stripped, ...rest } = { ...base("BIRTH"), ...SUBJECTS.BIRTH };
+  const input = createOrderSchema.parse(rest);
+  const result = validateOrderSubmission(input, { requireCard: false });
+  assert.deepEqual(
+    Object.keys(result.errors).filter((key) => key.startsWith("paymentCard.")),
+    [],
+  );
+});
+
+test("creation still requires the card", () => {
+  const { paymentCard: _stripped, ...rest } = { ...base("BIRTH"), ...SUBJECTS.BIRTH };
+  const input = createOrderSchema.parse(rest);
+  const result = validateOrderSubmission(input);
+  assert.equal(result.errors["paymentCard.number"] !== undefined, true);
+});
+
 test("strips legacy consent fields without failing validation", () => {
   const input = createOrderSchema.parse({
     ...base("BIRTH"),
@@ -235,13 +252,20 @@ test("requires the USVR birth subject fields", () => {
   });
   const result = validateOrderSubmission(input);
   assert.equal(result.ok, false);
-  for (const key of [
-    "subject.middleName",
-    "subject.subjectMaidenLastName",
-    "subject.stillLiving",
-  ]) {
+  for (const key of ["subject.subjectMaidenLastName", "subject.stillLiving"]) {
     assert.ok(result.errors[key], `expected error for ${key}`);
   }
+  assert.equal(result.errors["subject.middleName"], undefined);
+});
+
+test("subject middle name is optional", () => {
+  const input = createOrderSchema.parse({
+    ...base("BIRTH"),
+    ...SUBJECTS.BIRTH,
+    subject: { ...SUBJECTS.BIRTH.subject, middleName: "" },
+  });
+  const result = validateOrderSubmission(input);
+  assert.equal(result.errors["subject.middleName"], undefined);
 });
 
 test("maiden name is optional for a Male birth subject", () => {
@@ -300,9 +324,8 @@ test("requires the USVR death subject fields", () => {
   });
   const result = validateOrderSubmission(input);
   assert.equal(result.ok, false);
-  for (const key of ["subject.middleName", "subject.sex"]) {
-    assert.ok(result.errors[key], `expected error for ${key}`);
-  }
+  assert.ok(result.errors["subject.sex"], "expected error for subject.sex");
+  assert.equal(result.errors["subject.middleName"], undefined);
 });
 
 test("race is optional on a death record", () => {

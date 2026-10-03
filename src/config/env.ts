@@ -1,6 +1,6 @@
 import "dotenv/config";
 import { z } from "zod";
-const schema = z
+export const envSchema = z
   .object({
     NODE_ENV: z.enum(["development", "test", "production"]).default("development"),
     PORT: z.coerce.number().default(4000),
@@ -12,6 +12,10 @@ const schema = z
     STRIPE_SECRET_KEY: z.string().startsWith("sk_"),
     STRIPE_WEBHOOK_SECRET: z.string().startsWith("whsec_"),
     STRIPE_PUBLISHABLE_KEY: z.string().startsWith("pk_"),
+    /** Fail-safe payment mode. "live" requires live keys; anything else
+     *  requires test keys. Never infer from NODE_ENV (staging runs test
+     *  keys under production builds). */
+    PAYMENT_ENVIRONMENT: z.enum(["test", "live"]).default("test"),
     SENSITIVE_ENCRYPTION_KEY: z
       .string()
       .min(32)
@@ -97,5 +101,23 @@ const schema = z
           "OPENAI_ADS_PIXEL_ID, OPENAI_CONVERSIONS_API_KEY, and OPENAI_CONVERSION_SOURCE_URL are required when OPENAI_CONVERSIONS_ENABLED=true",
       });
     }
+    // Livemode assertion: test keys can never charge real money and live keys
+    // must never run outside the live payment environment.
+    const liveSecret = value.STRIPE_SECRET_KEY.startsWith("sk_live_");
+    const livePublishable = value.STRIPE_PUBLISHABLE_KEY.startsWith("pk_live_");
+    if (value.PAYMENT_ENVIRONMENT === "live" && (!liveSecret || !livePublishable)) {
+      context.addIssue({
+        code: "custom",
+        path: ["PAYMENT_ENVIRONMENT"],
+        message: "PAYMENT_ENVIRONMENT=live requires sk_live_ and pk_live_ Stripe keys",
+      });
+    }
+    if (value.PAYMENT_ENVIRONMENT === "test" && (liveSecret || livePublishable)) {
+      context.addIssue({
+        code: "custom",
+        path: ["PAYMENT_ENVIRONMENT"],
+        message: "Live Stripe keys require PAYMENT_ENVIRONMENT=live",
+      });
+    }
   });
-export const env = schema.parse(process.env);
+export const env = envSchema.parse(process.env);

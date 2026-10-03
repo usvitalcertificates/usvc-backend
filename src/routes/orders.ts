@@ -12,6 +12,8 @@ import {
   validateOrderSubmission,
 } from "../lib/order-validation.js";
 import { Order } from "../models/order.js";
+import { chargeServiceFee } from "../lib/direct-charge.js";
+import { resolveSubmissionReuse } from "../lib/order-reuse.js";
 import { EmailOutbox } from "../models/email-outbox.js";
 import { nextOrderSequence } from "../models/counter.js";
 import { ApiError } from "../middleware/errors.js";
@@ -44,11 +46,27 @@ const trackingLimiter = rateLimit({
   legacyHeaders: false,
   message: { message: "Too many tracking attempts. Please try again later." },
 });
+/** Order creation charges a card: strict per-IP cap against card testing. */
+const orderCreationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many order attempts. Please try again later." },
+});
+/** Validation dry-run: generous cap, still abuse-aware. */
+const verifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many attempts. Please try again later." },
+});
 
 /** Validate + store a complete application. SSN + card are encrypted into
  *  confidentialData (AES-256-GCM) before persistence — never stored or logged
  *  as plaintext, never returned by public projections. */
-ordersRouter.post("/", async (req, res, next) => {
+ordersRouter.post("/", orderCreationLimiter, async (req, res, next) => {
   try {
     const input = createOrderSchema.parse(req.body);
     const result = validateOrderSubmission(input);
@@ -56,106 +74,258 @@ ordersRouter.post("/", async (req, res, next) => {
       return res
         .status(422)
         .json({ message: "Please correct the highlighted fields.", errors: result.errors });
+    // Validation (requireCard default) guarantees the card; this narrows the type.
+    const card = input.paymentCard;
+    if (!card)
+      return res.status(422).json({
+        message: "Please correct the highlighted fields.",
+        errors: { "paymentCard.number": "Please enter a valid Visa or Mastercard number." },
+      });
 
     const pricing = pricingBreakdown(
       input.copies,
       input.rush,
       input.destinationType === "international",
     );
-    // Globally sequential plate numbers via an atomic counter. A consumed
-    // sequence is never reused; on a (near-impossible) duplicate-key conflict
-    // the loop takes the next sequence instead of failing the order.
+    // One submissionKey = one logical order. Shared application fields for
+    // both the create path and the retry-reuse path below.
+    const submissionKey = input.submissionKey;
+    const applicationFields = {
+      stateSlug: input.stateSlug,
+      stateName: input.stateName,
+      stateCode: input.stateCode,
+      certificate: input.certificate,
+      geo: { county: input.county, city: input.city },
+      reason: input.reason,
+      reasonOther: input.reasonOther ?? "",
+      applicant: {
+        relationship: input.applicant.relationship,
+        relationshipOther: input.applicant.relationshipOther ?? "",
+        firstName: input.applicant.firstName,
+        middleName: input.applicant.middleName ?? "",
+        lastName: input.applicant.lastName,
+        suffix: input.applicant.suffix ?? "",
+        dateOfBirth: input.applicant.dateOfBirth ?? "",
+        phone: input.applicant.phone,
+        email: input.applicant.email,
+      },
+      subject: input.subject,
+      family: input.family,
+      addresses: input.addresses,
+      destinationType: input.destinationType,
+      copies: input.copies,
+      rush: input.rush,
+      deliveryMethod: input.deliveryMethod,
+      consents: input.consents,
+      processingAuthorization: {
+        accepted: input.processingAuthorization.accepted,
+        text: input.processingAuthorization.text,
+        acceptedAt: new Date(input.processingAuthorization.acceptedAt),
+      },
+      signature: input.signature,
+      confidentialData: {
+        ssnEnc: encryptSensitive((input.requestorSsn ?? "").trim()),
+        cardNumberEnc: encryptSensitive(card.number.replace(/[\s-]/g, "")),
+        cardExpiryEnc: encryptSensitive(card.expiry.trim()),
+        cardCvcEnc: encryptSensitive(card.securityCode.trim()),
+        cardLast4: card.number.replace(/\D/g, "").slice(-4),
+        keyId: env.SENSITIVE_KEY_ID,
+        encryptedAt: new Date(),
+      },
+      pricing: { ...pricing, chargedNowCents: pricing.totalCents },
+      amountCents: pricing.totalCents,
+      currency: "usd",
+    };
+    const freshAnalytics = {
+      clientId: input.analytics?.clientId ?? "",
+      sessionId: input.analytics?.sessionId ?? "",
+      // Server-side dedup key for the OpenAI Conversions API; the
+      // browser pixel fires the same order_created independently.
+      openAiEventId: randomUUID(),
+      openAiOppref: input.analytics?.openAiOppref ?? "",
+      openAiObref: input.analytics?.openAiObref ?? "",
+    };
+    // Retry of the same fill: update the unpaid order in place instead of
+    // creating a duplicate. A retry of a paid order is a conflict that the
+    // browser resolves to the existing confirmation.
     let order;
-    for (let attempt = 0; ; attempt++) {
-      const publicNumber = orderNumber(
-        input.certificate,
-        input.stateCode,
-        await nextOrderSequence(),
+    if (submissionKey) {
+      const existing = await Order.findOne({ submissionKey });
+      const decision = resolveSubmissionReuse(
+        existing
+          ? {
+              _id: existing._id,
+              publicNumber: existing.publicNumber,
+              paymentStatus: existing.paymentStatus,
+            }
+          : null,
       );
-      try {
-        order = await Order.create({
-          publicNumber,
-          stateSlug: input.stateSlug,
-          stateName: input.stateName,
-          stateCode: input.stateCode,
-          certificate: input.certificate,
-          geo: { county: input.county, city: input.city },
-          reason: input.reason,
-          reasonOther: input.reasonOther ?? "",
-          applicant: {
-            relationship: input.applicant.relationship,
-            relationshipOther: input.applicant.relationshipOther ?? "",
-            firstName: input.applicant.firstName,
-            middleName: input.applicant.middleName ?? "",
-            lastName: input.applicant.lastName,
-            suffix: input.applicant.suffix ?? "",
-            dateOfBirth: input.applicant.dateOfBirth ?? "",
-            phone: input.applicant.phone,
-            email: input.applicant.email,
-          },
-          subject: input.subject,
-          family: input.family,
-          addresses: input.addresses,
-          destinationType: input.destinationType,
-          copies: input.copies,
-          rush: input.rush,
-          deliveryMethod: input.deliveryMethod,
-          consents: input.consents,
-          processingAuthorization: {
-            accepted: input.processingAuthorization.accepted,
-            text: input.processingAuthorization.text,
-            acceptedAt: new Date(input.processingAuthorization.acceptedAt),
-          },
-          signature: input.signature,
-          confidentialData: {
-            ssnEnc: encryptSensitive((input.requestorSsn ?? "").trim()),
-            cardNumberEnc: encryptSensitive(input.paymentCard.number.replace(/[\s-]/g, "")),
-            cardExpiryEnc: encryptSensitive(input.paymentCard.expiry.trim()),
-            cardCvcEnc: encryptSensitive(input.paymentCard.securityCode.trim()),
-            cardLast4: input.paymentCard.number.replace(/\D/g, "").slice(-4),
-            keyId: env.SENSITIVE_KEY_ID,
-            encryptedAt: new Date(),
-          },
-          analytics: {
-            clientId: input.analytics?.clientId ?? "",
-            sessionId: input.analytics?.sessionId ?? "",
-            // Server-side dedup key for the OpenAI Conversions API; the
-            // browser pixel fires the same order_created independently.
-            openAiEventId: randomUUID(),
-            openAiOppref: input.analytics?.openAiOppref ?? "",
-            openAiObref: input.analytics?.openAiObref ?? "",
-          },
-          pricing: { ...pricing, chargedNowCents: pricing.totalCents },
-          amountCents: pricing.totalCents,
-          currency: "usd",
+      if (decision.action === "conflict") {
+        return res.status(409).json({
+          message: "This order was already paid.",
+          orderId: decision.orderId,
+          publicNumber: decision.publicNumber,
+        });
+      }
+      if (decision.action === "reuse" && existing) {
+        existing.set({
+          ...applicationFields,
           status: "AWAITING_PAYMENT",
           paymentStatus: "PENDING",
-          auditEvents: [{ action: "order_created", createdAt: new Date() }],
         });
-        break;
-      } catch (e) {
-        const conflict = (e as { code?: number })?.code === 11000;
-        if (!conflict || attempt >= 2) throw e;
+        existing.set("analytics.clientId", freshAnalytics.clientId);
+        existing.set("analytics.sessionId", freshAnalytics.sessionId);
+        existing.set("analytics.openAiOppref", freshAnalytics.openAiOppref);
+        existing.set("analytics.openAiObref", freshAnalytics.openAiObref);
+        existing.auditEvents ??= [];
+        existing.auditEvents.push({ action: "order_retried", createdAt: new Date() });
+        await existing.save();
+        order = existing;
+      }
+    }
+    if (!order) {
+      // Globally sequential plate numbers via an atomic counter. A consumed
+      // sequence is never reused; on a (near-impossible) duplicate-key conflict
+      // the loop takes the next sequence instead of failing the order.
+      for (let attempt = 0; ; attempt++) {
+        const publicNumber = orderNumber(
+          input.certificate,
+          input.stateCode,
+          await nextOrderSequence(),
+        );
+        try {
+          order = await Order.create({
+            publicNumber,
+            ...(submissionKey ? { submissionKey } : {}),
+            ...applicationFields,
+            analytics: freshAnalytics,
+            status: "AWAITING_PAYMENT",
+            paymentStatus: "PENDING",
+            auditEvents: [{ action: "order_created", createdAt: new Date() }],
+          });
+          break;
+        } catch (e) {
+          const conflict = (e as { code?: number })?.code === 11000;
+          const keyPattern = (e as { keyPattern?: Record<string, unknown> })?.keyPattern;
+          if (conflict && submissionKey && keyPattern && "submissionKey" in keyPattern) {
+            // Concurrent retry won the create race: resolve on the winner.
+            const dupe = await Order.findOne(
+              { submissionKey },
+              { paymentStatus: 1, publicNumber: 1 },
+            ).lean();
+            if (dupe) {
+              return res.status(409).json({
+                message: "This order is already being processed.",
+                orderId: String(dupe._id),
+                publicNumber: dupe.publicNumber,
+              });
+            }
+          }
+          if (!conflict || attempt >= 2) throw e;
+        }
       }
     }
     if (!order) throw new Error("Order could not be created.");
 
-    res.status(201).json({
-      id: order._id.toHexString(),
-      publicNumber: order.publicNumber,
-      amountCents: order.amountCents,
-      openAiEventId: order.analytics?.openAiEventId ?? "",
+    // Straight-through payment: charge the service fee synchronously, preferring
+    // a browser-minted token (no raw-PAN Stripe APIs) and falling back to the
+    // stored card details. Amount is server-computed; browser totals are never
+    // trusted. The payment_intent.succeeded webhook converges on the same PAID
+    // state idempotently; confirmation email + analytics outboxes ride it.
+    //
+    // The idempotency key is scoped per charge attempt (atomic counter): every
+    // retry mints a fresh single-use token, and Stripe rejects a reused key
+    // with differing params — so a fixed per-order key would break all retries.
+    const charged = await Order.findOneAndUpdate(
+      { _id: order._id },
+      { $inc: { chargeAttempts: 1 } },
+      { new: true, projection: { chargeAttempts: 1 } },
+    ).lean();
+    const attempt =
+      charged?.chargeAttempts && charged.chargeAttempts > 0 ? charged.chargeAttempts : 1;
+    let charge: Awaited<ReturnType<typeof chargeServiceFee>>;
+    try {
+      charge = await chargeServiceFee(stripe, {
+        orderId: order._id.toHexString(),
+        orderNumber: order.publicNumber,
+        email: order.applicant.email,
+        amountCents: pricing.totalCents,
+        card: {
+          number: card.number,
+          expiry: card.expiry,
+          securityCode: card.securityCode,
+        },
+        cardToken: input.stripeCardToken,
+        idempotencyKey: `usvc_order_charge_${order._id.toHexString()}_${attempt}`,
+      });
+    } catch {
+      // Processor/infra failure (not a decline): order stays PENDING so the
+      // customer can retry; never surface internals.
+      return res.status(502).json({
+        message: "Payment could not be processed right now. Please try again in a moment.",
+      });
+    }
+    if (charge.ok) {
+      order.paymentStatus = "PAID";
+      order.status = "PAID";
+      order.stripePaymentIntentId = charge.paymentIntentId;
+      const paidAt = new Date();
+      order.customerTimeline ??= {};
+      order.customerTimeline.paymentSuccessfulAt = paidAt;
+      order.customerTimeline.orderReceivedAt = paidAt;
+      order.auditEvents.push({
+        action: "payment_confirmed_direct",
+        metadata: { paymentIntentId: charge.paymentIntentId, chargePath: charge.chargePath },
+        createdAt: paidAt,
+      });
+      await order.save();
+      return res.status(201).json({
+        id: order._id.toHexString(),
+        publicNumber: order.publicNumber,
+        amountCents: order.amountCents,
+        openAiEventId: order.analytics?.openAiEventId ?? "",
+        paid: true as const,
+      });
+    }
+    // Decline / verification-needed: order stays recorded but unpaid; the
+    // customer re-enters card details on the form (never retained client-side).
+    // Terminal trace for debugging (code only — never PAN); UI gets the
+    // controlled message above.
+    console.error({
+      scope: "direct-charge",
+      orderId: order._id.toHexString(),
+      code: charge.code,
+      chargePath: input.stripeCardToken ? "token" : "raw",
+    });
+    order.paymentStatus = "FAILED";
+    order.auditEvents.push({
+      action: "payment_failed_direct",
+      metadata: { code: charge.code },
+      createdAt: new Date(),
+    });
+    await order.save();
+    return res.status(charge.httpStatus).json({
+      message: charge.message,
+      errors: { "paymentCard.number": charge.message },
+      paymentFailureCode: charge.code,
+      paid: false as const,
     });
   } catch (e) {
     next(e);
   }
 });
 
-/** Dry-run validation used by the form before creating a payment transaction. */
-ordersRouter.post("/verify-before-payment", async (req, res, next) => {
+/** Dry-run validation used by the form before creating a payment transaction.
+ *  Never receives the card: the browser strips paymentCard so PAN travels
+ *  exactly once (in POST /orders). */
+ordersRouter.post("/verify-before-payment", verifyLimiter, async (req, res, next) => {
   try {
-    const input = createOrderSchema.parse(req.body);
-    const result = validateOrderSubmission(input);
+    const body =
+      req.body && typeof req.body === "object" && !Array.isArray(req.body)
+        ? { ...(req.body as Record<string, unknown>), paymentCard: undefined }
+        : req.body;
+    const input = createOrderSchema.parse(body);
+    const result = validateOrderSubmission(input, { requireCard: false });
     if (!result.ok)
       return res
         .status(422)

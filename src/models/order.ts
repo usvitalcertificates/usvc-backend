@@ -27,6 +27,9 @@ const AddressSchema = new Schema(
 const OrderSchema = new Schema(
   {
     publicNumber: { type: String, required: true, unique: true, index: true },
+    /** Client idempotency key per form fill: retries update this order instead
+     *  of creating duplicates. Sparse so legacy keyless orders stay valid. */
+    submissionKey: { type: String, sparse: true, unique: true },
     stateSlug: { type: String, required: true },
     stateName: { type: String, required: true },
     stateCode: { type: String, required: true, uppercase: true, minlength: 2, maxlength: 2 },
@@ -157,6 +160,10 @@ const OrderSchema = new Schema(
     },
     stripePaymentIntentId: { type: String, sparse: true, unique: true },
     stripeCheckoutSessionId: { type: String, sparse: true, unique: true },
+    /** Synchronous charge attempts (straight-through payment). Incremented
+     *  atomically per attempt so each Stripe call carries a distinct
+     *  idempotency key — retries never collide with a previous attempt. */
+    chargeAttempts: { type: Number, default: 0 },
     notes: [{ authorId: String, body: String, createdAt: { type: Date, default: Date.now } }],
     auditEvents: [
       {
