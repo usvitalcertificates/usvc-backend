@@ -51,14 +51,21 @@ export function parseCardExpiry(expiry: string): { expMonth: number; expYear: nu
   return { expMonth: Number(match[1]), expYear: 2000 + Number(match[2]) };
 }
 
-function isStripeCardError(e: unknown): e is { code?: string; message: string } {
-  return (
-    typeof e === "object" &&
-    e !== null &&
-    (e as { type?: string }).type === "StripeCardError" &&
-    typeof (e as { message?: unknown }).message === "string"
-  );
+function isStripeCardError(e: unknown): e is { code?: string } {
+  return typeof e === "object" && e !== null && (e as { type?: string }).type === "StripeCardError";
 }
+
+/** Processor decline codes mapped to our own controlled texts. Processor
+ *  messages are never passed through: they can leak integration internals
+ *  (e.g. test-mode API guidance) into the UI. */
+const CARD_CODE_MESSAGES: Record<string, string> = {
+  incorrect_number: "The card number looks incorrect. Check the digits and try again.",
+  invalid_number: "The card number looks incorrect. Check the digits and try again.",
+  incorrect_cvc: "The security code looks incorrect. Check the 3-digit code and try again.",
+  invalid_cvc: "The security code looks incorrect. Check the 3-digit code and try again.",
+  expired_card: "Your card is expired. Please use another card (Visa or Mastercard).",
+  card_declined: DECLINED_MESSAGE,
+};
 
 export async function chargeServiceFee(
   stripe: Stripe,
@@ -106,12 +113,12 @@ export async function chargeServiceFee(
     return { ok: false, httpStatus: 402, code: "card_declined", message: DECLINED_MESSAGE };
   } catch (e) {
     if (isStripeCardError(e)) {
+      const code = e.code ?? "card_declined";
       return {
         ok: false,
         httpStatus: 402,
-        code: e.code ?? "card_declined",
-        // Stripe card-error messages are designed for customer display.
-        message: e.message || DECLINED_MESSAGE,
+        code,
+        message: CARD_CODE_MESSAGES[code] ?? DECLINED_MESSAGE,
       };
     }
     throw e;

@@ -155,11 +155,16 @@ export const createOrderSchema = z.object({
   /** Payment card details. Encrypted into confidentialData (AES-256-GCM) before
    *  persistence; never stored as plaintext.
    *  WARNING: owner-accepted PCI-DSS risk — see DECISIONS.md. */
-  paymentCard: z.object({
-    number: z.string().max(24).default(""),
-    expiry: z.string().max(7).default(""),
-    securityCode: z.string().max(5).default(""),
-  }),
+  paymentCard: z
+    .object({
+      number: z.string().max(24).default(""),
+      expiry: z.string().max(7).default(""),
+      securityCode: z.string().max(5).default(""),
+    })
+    // Optional so verify-before-payment can validate everything without the
+    // card ever travelling twice. Creation paths still require it via
+    // validateOrderSubmission's default requireCard:true.
+    .optional(),
   analytics: z
     .object({
       clientId: z
@@ -280,7 +285,10 @@ export interface OrderValidationResult {
   errors: Record<string, string>;
 }
 
-export function validateOrderSubmission(input: CreateOrderInput): OrderValidationResult {
+export function validateOrderSubmission(
+  input: CreateOrderInput,
+  opts?: { requireCard?: boolean },
+): OrderValidationResult {
   const errors: Record<string, string> = {};
   const required = REQUIRED[input.certificate];
 
@@ -387,14 +395,18 @@ export function validateOrderSubmission(input: CreateOrderInput): OrderValidatio
     errors["reasonOther"] = "Please describe your reason.";
   }
 
-  if (!isAcceptedCardNumber(input.paymentCard.number)) {
+  const card = input.paymentCard;
+  if (opts?.requireCard === false && !card) {
+    // Verify-before-payment: card deliberately absent, skip card checks.
+  } else if (!card || !isAcceptedCardNumber(card.number)) {
     errors["paymentCard.number"] = "Please enter a valid Visa or Mastercard number.";
-  }
-  if (!isAcceptedCardExpiry(input.paymentCard.expiry)) {
-    errors["paymentCard.expiry"] = "Please enter a valid future expiry date (MM/YY).";
-  }
-  if (!/^\d{3}$/.test(input.paymentCard.securityCode.trim())) {
-    errors["paymentCard.securityCode"] = "Please enter the 3-digit code on the back of the card.";
+  } else {
+    if (!isAcceptedCardExpiry(card.expiry)) {
+      errors["paymentCard.expiry"] = "Please enter a valid future expiry date (MM/YY).";
+    }
+    if (!/^\d{3}$/.test(card.securityCode.trim())) {
+      errors["paymentCard.securityCode"] = "Please enter the 3-digit code on the back of the card.";
+    }
   }
 
   // Server recomputes the charge; never trusts the client total.

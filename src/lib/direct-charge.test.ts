@@ -71,7 +71,7 @@ test("charges the server-computed amount with order idempotency metadata", async
   assert.equal(pmArgs.cvc, "123");
 });
 
-test("maps card declines to 402 with a field error", async () => {
+test("maps card declines to 402 with a controlled message", async () => {
   const stripe = fakeStripe({
     throwError: {
       type: "StripeCardError",
@@ -84,8 +84,26 @@ test("maps card declines to 402 with a field error", async () => {
   if (!result.ok) {
     assert.equal(result.httpStatus, 402);
     assert.equal(result.code, "card_declined");
-    assert.equal(result.message, "Your card was declined.");
+    // Processor text never passes through to the UI.
+    assert.equal(result.message, DECLINED_MESSAGE);
   }
+});
+
+test("maps known decline codes to tailored messages, unknown codes to generic", async () => {
+  const cvcStripe = fakeStripe({
+    throwError: { type: "StripeCardError", code: "incorrect_cvc", message: "CVC wrong." },
+  });
+  const cvcResult = await chargeServiceFee(cvcStripe, baseParams);
+  assert.ok(!cvcResult.ok && cvcResult.message.includes("security code"));
+  const oddStripe = fakeStripe({
+    throwError: {
+      type: "StripeCardError",
+      code: "processing_error",
+      message: "Processor docs link.",
+    },
+  });
+  const oddResult = await chargeServiceFee(oddStripe, baseParams);
+  assert.ok(!oddResult.ok && oddResult.message === DECLINED_MESSAGE);
 });
 
 test("maps requires_action to a verification message", async () => {

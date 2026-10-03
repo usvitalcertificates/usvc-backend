@@ -57,6 +57,13 @@ ordersRouter.post("/", async (req, res, next) => {
       return res
         .status(422)
         .json({ message: "Please correct the highlighted fields.", errors: result.errors });
+    // Validation (requireCard default) guarantees the card; this narrows the type.
+    const card = input.paymentCard;
+    if (!card)
+      return res.status(422).json({
+        message: "Please correct the highlighted fields.",
+        errors: { "paymentCard.number": "Please enter a valid Visa or Mastercard number." },
+      });
 
     const pricing = pricingBreakdown(
       input.copies,
@@ -110,10 +117,10 @@ ordersRouter.post("/", async (req, res, next) => {
           signature: input.signature,
           confidentialData: {
             ssnEnc: encryptSensitive((input.requestorSsn ?? "").trim()),
-            cardNumberEnc: encryptSensitive(input.paymentCard.number.replace(/[\s-]/g, "")),
-            cardExpiryEnc: encryptSensitive(input.paymentCard.expiry.trim()),
-            cardCvcEnc: encryptSensitive(input.paymentCard.securityCode.trim()),
-            cardLast4: input.paymentCard.number.replace(/\D/g, "").slice(-4),
+            cardNumberEnc: encryptSensitive(card.number.replace(/[\s-]/g, "")),
+            cardExpiryEnc: encryptSensitive(card.expiry.trim()),
+            cardCvcEnc: encryptSensitive(card.securityCode.trim()),
+            cardLast4: card.number.replace(/\D/g, "").slice(-4),
             keyId: env.SENSITIVE_KEY_ID,
             encryptedAt: new Date(),
           },
@@ -153,9 +160,9 @@ ordersRouter.post("/", async (req, res, next) => {
         email: order.applicant.email,
         amountCents: pricing.totalCents,
         card: {
-          number: input.paymentCard.number,
-          expiry: input.paymentCard.expiry,
-          securityCode: input.paymentCard.securityCode,
+          number: card.number,
+          expiry: card.expiry,
+          securityCode: card.securityCode,
         },
       });
     } catch {
@@ -207,11 +214,17 @@ ordersRouter.post("/", async (req, res, next) => {
   }
 });
 
-/** Dry-run validation used by the form before creating a payment transaction. */
+/** Dry-run validation used by the form before creating a payment transaction.
+ *  Never receives the card: the browser strips paymentCard so PAN travels
+ *  exactly once (in POST /orders). */
 ordersRouter.post("/verify-before-payment", async (req, res, next) => {
   try {
-    const input = createOrderSchema.parse(req.body);
-    const result = validateOrderSubmission(input);
+    const body =
+      req.body && typeof req.body === "object" && !Array.isArray(req.body)
+        ? { ...(req.body as Record<string, unknown>), paymentCard: undefined }
+        : req.body;
+    const input = createOrderSchema.parse(body);
+    const result = validateOrderSubmission(input, { requireCard: false });
     if (!result.ok)
       return res
         .status(422)
