@@ -15,6 +15,7 @@ const baseParams = {
   email: "buyer@example.com",
   amountCents: 14900,
   card: { number: "4111 1111 1111 1111", expiry: "12/30", securityCode: "123" },
+  idempotencyKey: "usvc_order_charge_order123_1",
 };
 
 function fakeStripe(behavior: {
@@ -66,7 +67,7 @@ test("charges the server-computed amount with order idempotency metadata", async
   assert.deepEqual((intentArgs.metadata as Record<string, string>).orderId, "order123");
   assert.deepEqual(
     (seen.intentOpts as Record<string, string>).idempotencyKey,
-    "usvc_order_charge_order123",
+    "usvc_order_charge_order123_1",
   );
   const pmArgs = (seen.paymentMethodArgs as { card: Record<string, unknown> }).card;
   assert.equal(pmArgs.number, "4111111111111111");
@@ -207,6 +208,23 @@ test("logs the exact processor detail server-side without card data", async () =
     "stripeType",
   ]);
   assert.ok(!JSON.stringify(logged).includes("4111111111111111"), "no PAN in log");
+});
+
+test("idempotency errors map to a retryable 502", async () => {
+  const stripe = fakeStripe({
+    throwError: {
+      type: "StripeIdempotencyError",
+      code: "idempotency_key_in_use",
+      message: "Keys for idempotent requests can only be used with the same parameters.",
+    },
+  });
+  const result = await chargeServiceFee(stripe, baseParams);
+  assert.deepEqual(result, {
+    ok: false,
+    httpStatus: 502,
+    code: "idempotency_key_in_use",
+    message: PROCESSOR_ERROR_MESSAGE,
+  });
 });
 
 test("processor errors propagate for a 502", async () => {

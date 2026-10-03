@@ -25,6 +25,11 @@ export interface ServiceChargeParams {
   card: ServiceChargeCard;
   /** Browser-minted single-use token (tok_...). Preferred when present. */
   cardToken?: string;
+  /** Caller-computed idempotency key, scoped per charge attempt
+   *  (`usvc_order_charge_<orderId>_<attempt>`). A fixed per-order key breaks
+   *  retries: Stripe rejects a reused key with different params (a fresh
+   *  single-use token each attempt), so the key must advance per attempt. */
+  idempotencyKey: string;
 }
 
 export type ServiceChargeResult =
@@ -60,6 +65,14 @@ function isStripeCardError(e: unknown): e is {
   message?: unknown;
 } {
   return typeof e === "object" && e !== null && (e as { type?: string }).type === "StripeCardError";
+}
+
+function isIdempotencyError(e: unknown): e is { message?: unknown } {
+  return (
+    typeof e === "object" &&
+    e !== null &&
+    (e as { type?: string }).type === "StripeIdempotencyError"
+  );
 }
 
 /** Server-side only debug trace. Picked scalar fields — never the whole error
@@ -105,7 +118,7 @@ export async function chargeServiceFee(
     return { ok: false, httpStatus: 402, code: "invalid_card", message: DECLINED_MESSAGE };
   }
   try {
-    const idempotencyKey = `usvc_order_charge_${params.orderId}`;
+    const { idempotencyKey } = params;
     const common = {
       amount: params.amountCents,
       currency: "usd",
@@ -116,8 +129,10 @@ export async function chargeServiceFee(
       receipt_email: params.email || undefined,
       metadata: { orderId: params.orderId, orderNumber: params.orderNumber },
     } as const;
-    // Exactly one charge attempt per submission (never token-then-raw: a lost
-    // response after a successful charge must not double-charge on retry).
+    // Exactly one charge attempt per call site invocation. Retries arrive as
+    // separate calls with a fresh idempotency key (see route counter), so a
+    // lost response after success can never double-charge, and a fresh token
+    // never collides with a previous attempt's key.
     let intent;
     let chargePath: "token" | "raw";
     if (params.cardToken) {
@@ -182,6 +197,22 @@ export async function chargeServiceFee(
         httpStatus: 402,
         code,
         message: CARD_CODE_MESSAGES[code] ?? DECLINED_MESSAGE,
+      };
+    }
+    if (isIdempotencyError(e)) {
+      // Stale/duplicate key reuse across differing params. Not the customer's
+      // fault — a plain retry with a fresh key resolves it.
+      logProcessorDetail({
+        orderId: params.orderId,
+        code: "idempotency_key_in_use",
+        stripeType: "StripeIdempotencyError",
+        processorMessage: typeof e.message === "string" ? e.message : undefined,
+      });
+      return {
+        ok: false,
+        httpStatus: 502,
+        code: "idempotency_key_in_use",
+        message: PROCESSOR_ERROR_MESSAGE,
       };
     }
     throw e;

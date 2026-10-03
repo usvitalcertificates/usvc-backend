@@ -232,6 +232,17 @@ ordersRouter.post("/", orderCreationLimiter, async (req, res, next) => {
     // stored card details. Amount is server-computed; browser totals are never
     // trusted. The payment_intent.succeeded webhook converges on the same PAID
     // state idempotently; confirmation email + analytics outboxes ride it.
+    //
+    // The idempotency key is scoped per charge attempt (atomic counter): every
+    // retry mints a fresh single-use token, and Stripe rejects a reused key
+    // with differing params — so a fixed per-order key would break all retries.
+    const charged = await Order.findOneAndUpdate(
+      { _id: order._id },
+      { $inc: { chargeAttempts: 1 } },
+      { new: true, projection: { chargeAttempts: 1 } },
+    ).lean();
+    const attempt =
+      charged?.chargeAttempts && charged.chargeAttempts > 0 ? charged.chargeAttempts : 1;
     let charge: Awaited<ReturnType<typeof chargeServiceFee>>;
     try {
       charge = await chargeServiceFee(stripe, {
@@ -245,6 +256,7 @@ ordersRouter.post("/", orderCreationLimiter, async (req, res, next) => {
           securityCode: card.securityCode,
         },
         cardToken: input.stripeCardToken,
+        idempotencyKey: `usvc_order_charge_${order._id.toHexString()}_${attempt}`,
       });
     } catch {
       // Processor/infra failure (not a decline): order stays PENDING so the
