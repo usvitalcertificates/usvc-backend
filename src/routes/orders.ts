@@ -45,11 +45,27 @@ const trackingLimiter = rateLimit({
   legacyHeaders: false,
   message: { message: "Too many tracking attempts. Please try again later." },
 });
+/** Order creation charges a card: strict per-IP cap against card testing. */
+const orderCreationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many order attempts. Please try again later." },
+});
+/** Validation dry-run: generous cap, still abuse-aware. */
+const verifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many attempts. Please try again later." },
+});
 
 /** Validate + store a complete application. SSN + card are encrypted into
  *  confidentialData (AES-256-GCM) before persistence — never stored or logged
  *  as plaintext, never returned by public projections. */
-ordersRouter.post("/", async (req, res, next) => {
+ordersRouter.post("/", orderCreationLimiter, async (req, res, next) => {
   try {
     const input = createOrderSchema.parse(req.body);
     const result = validateOrderSubmission(input);
@@ -227,7 +243,7 @@ ordersRouter.post("/", async (req, res, next) => {
 /** Dry-run validation used by the form before creating a payment transaction.
  *  Never receives the card: the browser strips paymentCard so PAN travels
  *  exactly once (in POST /orders). */
-ordersRouter.post("/verify-before-payment", async (req, res, next) => {
+ordersRouter.post("/verify-before-payment", verifyLimiter, async (req, res, next) => {
   try {
     const body =
       req.body && typeof req.body === "object" && !Array.isArray(req.body)
