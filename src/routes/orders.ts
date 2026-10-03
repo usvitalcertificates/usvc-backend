@@ -12,6 +12,7 @@ import {
   validateOrderSubmission,
 } from "../lib/order-validation.js";
 import { Order } from "../models/order.js";
+import { chargeServiceFee } from "../lib/direct-charge.js";
 import { EmailOutbox } from "../models/email-outbox.js";
 import { nextOrderSequence } from "../models/counter.js";
 import { ApiError } from "../middleware/errors.js";
@@ -44,11 +45,27 @@ const trackingLimiter = rateLimit({
   legacyHeaders: false,
   message: { message: "Too many tracking attempts. Please try again later." },
 });
+/** Order creation charges a card: strict per-IP cap against card testing. */
+const orderCreationLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many order attempts. Please try again later." },
+});
+/** Validation dry-run: generous cap, still abuse-aware. */
+const verifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 60,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { message: "Too many attempts. Please try again later." },
+});
 
 /** Validate + store a complete application. SSN + card are encrypted into
  *  confidentialData (AES-256-GCM) before persistence — never stored or logged
  *  as plaintext, never returned by public projections. */
-ordersRouter.post("/", async (req, res, next) => {
+ordersRouter.post("/", orderCreationLimiter, async (req, res, next) => {
   try {
     const input = createOrderSchema.parse(req.body);
     const result = validateOrderSubmission(input);
@@ -56,6 +73,13 @@ ordersRouter.post("/", async (req, res, next) => {
       return res
         .status(422)
         .json({ message: "Please correct the highlighted fields.", errors: result.errors });
+    // Validation (requireCard default) guarantees the card; this narrows the type.
+    const card = input.paymentCard;
+    if (!card)
+      return res.status(422).json({
+        message: "Please correct the highlighted fields.",
+        errors: { "paymentCard.number": "Please enter a valid Visa or Mastercard number." },
+      });
 
     const pricing = pricingBreakdown(
       input.copies,
@@ -109,10 +133,10 @@ ordersRouter.post("/", async (req, res, next) => {
           signature: input.signature,
           confidentialData: {
             ssnEnc: encryptSensitive((input.requestorSsn ?? "").trim()),
-            cardNumberEnc: encryptSensitive(input.paymentCard.number.replace(/[\s-]/g, "")),
-            cardExpiryEnc: encryptSensitive(input.paymentCard.expiry.trim()),
-            cardCvcEnc: encryptSensitive(input.paymentCard.securityCode.trim()),
-            cardLast4: input.paymentCard.number.replace(/\D/g, "").slice(-4),
+            cardNumberEnc: encryptSensitive(card.number.replace(/[\s-]/g, "")),
+            cardExpiryEnc: encryptSensitive(card.expiry.trim()),
+            cardCvcEnc: encryptSensitive(card.securityCode.trim()),
+            cardLast4: card.number.replace(/\D/g, "").slice(-4),
             keyId: env.SENSITIVE_KEY_ID,
             encryptedAt: new Date(),
           },
@@ -140,22 +164,93 @@ ordersRouter.post("/", async (req, res, next) => {
     }
     if (!order) throw new Error("Order could not be created.");
 
-    res.status(201).json({
-      id: order._id.toHexString(),
-      publicNumber: order.publicNumber,
-      amountCents: order.amountCents,
-      openAiEventId: order.analytics?.openAiEventId ?? "",
+    // Straight-through payment: charge the service fee synchronously, preferring
+    // a browser-minted token (no raw-PAN Stripe APIs) and falling back to the
+    // stored card details. Amount is server-computed; browser totals are never
+    // trusted. The payment_intent.succeeded webhook converges on the same PAID
+    // state idempotently; confirmation email + analytics outboxes ride it.
+    let charge: Awaited<ReturnType<typeof chargeServiceFee>>;
+    try {
+      charge = await chargeServiceFee(stripe, {
+        orderId: order._id.toHexString(),
+        orderNumber: order.publicNumber,
+        email: order.applicant.email,
+        amountCents: pricing.totalCents,
+        card: {
+          number: card.number,
+          expiry: card.expiry,
+          securityCode: card.securityCode,
+        },
+        cardToken: input.stripeCardToken,
+      });
+    } catch {
+      // Processor/infra failure (not a decline): order stays PENDING so the
+      // customer can retry; never surface internals.
+      return res.status(502).json({
+        message: "Payment could not be processed right now. Please try again in a moment.",
+      });
+    }
+    if (charge.ok) {
+      order.paymentStatus = "PAID";
+      order.status = "PAID";
+      order.stripePaymentIntentId = charge.paymentIntentId;
+      const paidAt = new Date();
+      order.customerTimeline ??= {};
+      order.customerTimeline.paymentSuccessfulAt = paidAt;
+      order.customerTimeline.orderReceivedAt = paidAt;
+      order.auditEvents.push({
+        action: "payment_confirmed_direct",
+        metadata: { paymentIntentId: charge.paymentIntentId, chargePath: charge.chargePath },
+        createdAt: paidAt,
+      });
+      await order.save();
+      return res.status(201).json({
+        id: order._id.toHexString(),
+        publicNumber: order.publicNumber,
+        amountCents: order.amountCents,
+        openAiEventId: order.analytics?.openAiEventId ?? "",
+        paid: true as const,
+      });
+    }
+    // Decline / verification-needed: order stays recorded but unpaid; the
+    // customer re-enters card details on the form (never retained client-side).
+    // Terminal trace for debugging (code only — never PAN); UI gets the
+    // controlled message above.
+    console.error({
+      scope: "direct-charge",
+      orderId: order._id.toHexString(),
+      code: charge.code,
+      chargePath: input.stripeCardToken ? "token" : "raw",
+    });
+    order.paymentStatus = "FAILED";
+    order.auditEvents.push({
+      action: "payment_failed_direct",
+      metadata: { code: charge.code },
+      createdAt: new Date(),
+    });
+    await order.save();
+    return res.status(charge.httpStatus).json({
+      message: charge.message,
+      errors: { "paymentCard.number": charge.message },
+      paymentFailureCode: charge.code,
+      paid: false as const,
     });
   } catch (e) {
     next(e);
   }
 });
 
-/** Dry-run validation used by the form before creating a payment transaction. */
-ordersRouter.post("/verify-before-payment", async (req, res, next) => {
+/** Dry-run validation used by the form before creating a payment transaction.
+ *  Never receives the card: the browser strips paymentCard so PAN travels
+ *  exactly once (in POST /orders). */
+ordersRouter.post("/verify-before-payment", verifyLimiter, async (req, res, next) => {
   try {
-    const input = createOrderSchema.parse(req.body);
-    const result = validateOrderSubmission(input);
+    const body =
+      req.body && typeof req.body === "object" && !Array.isArray(req.body)
+        ? { ...(req.body as Record<string, unknown>), paymentCard: undefined }
+        : req.body;
+    const input = createOrderSchema.parse(body);
+    const result = validateOrderSubmission(input, { requireCard: false });
     if (!result.ok)
       return res
         .status(422)
