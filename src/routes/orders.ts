@@ -13,6 +13,7 @@ import {
 } from "../lib/order-validation.js";
 import { Order } from "../models/order.js";
 import { chargeServiceFee } from "../lib/direct-charge.js";
+import { resolveSubmissionReuse } from "../lib/order-reuse.js";
 import { EmailOutbox } from "../models/email-outbox.js";
 import { nextOrderSequence } from "../models/counter.js";
 import { ApiError } from "../middleware/errors.js";
@@ -86,80 +87,142 @@ ordersRouter.post("/", orderCreationLimiter, async (req, res, next) => {
       input.rush,
       input.destinationType === "international",
     );
-    // Globally sequential plate numbers via an atomic counter. A consumed
-    // sequence is never reused; on a (near-impossible) duplicate-key conflict
-    // the loop takes the next sequence instead of failing the order.
+    // One submissionKey = one logical order. Shared application fields for
+    // both the create path and the retry-reuse path below.
+    const submissionKey = input.submissionKey;
+    const applicationFields = {
+      stateSlug: input.stateSlug,
+      stateName: input.stateName,
+      stateCode: input.stateCode,
+      certificate: input.certificate,
+      geo: { county: input.county, city: input.city },
+      reason: input.reason,
+      reasonOther: input.reasonOther ?? "",
+      applicant: {
+        relationship: input.applicant.relationship,
+        relationshipOther: input.applicant.relationshipOther ?? "",
+        firstName: input.applicant.firstName,
+        middleName: input.applicant.middleName ?? "",
+        lastName: input.applicant.lastName,
+        suffix: input.applicant.suffix ?? "",
+        dateOfBirth: input.applicant.dateOfBirth ?? "",
+        phone: input.applicant.phone,
+        email: input.applicant.email,
+      },
+      subject: input.subject,
+      family: input.family,
+      addresses: input.addresses,
+      destinationType: input.destinationType,
+      copies: input.copies,
+      rush: input.rush,
+      deliveryMethod: input.deliveryMethod,
+      consents: input.consents,
+      processingAuthorization: {
+        accepted: input.processingAuthorization.accepted,
+        text: input.processingAuthorization.text,
+        acceptedAt: new Date(input.processingAuthorization.acceptedAt),
+      },
+      signature: input.signature,
+      confidentialData: {
+        ssnEnc: encryptSensitive((input.requestorSsn ?? "").trim()),
+        cardNumberEnc: encryptSensitive(card.number.replace(/[\s-]/g, "")),
+        cardExpiryEnc: encryptSensitive(card.expiry.trim()),
+        cardCvcEnc: encryptSensitive(card.securityCode.trim()),
+        cardLast4: card.number.replace(/\D/g, "").slice(-4),
+        keyId: env.SENSITIVE_KEY_ID,
+        encryptedAt: new Date(),
+      },
+      pricing: { ...pricing, chargedNowCents: pricing.totalCents },
+      amountCents: pricing.totalCents,
+      currency: "usd",
+    };
+    const freshAnalytics = {
+      clientId: input.analytics?.clientId ?? "",
+      sessionId: input.analytics?.sessionId ?? "",
+      // Server-side dedup key for the OpenAI Conversions API; the
+      // browser pixel fires the same order_created independently.
+      openAiEventId: randomUUID(),
+      openAiOppref: input.analytics?.openAiOppref ?? "",
+      openAiObref: input.analytics?.openAiObref ?? "",
+    };
+    // Retry of the same fill: update the unpaid order in place instead of
+    // creating a duplicate. A retry of a paid order is a conflict that the
+    // browser resolves to the existing confirmation.
     let order;
-    for (let attempt = 0; ; attempt++) {
-      const publicNumber = orderNumber(
-        input.certificate,
-        input.stateCode,
-        await nextOrderSequence(),
+    if (submissionKey) {
+      const existing = await Order.findOne({ submissionKey });
+      const decision = resolveSubmissionReuse(
+        existing
+          ? {
+              _id: existing._id,
+              publicNumber: existing.publicNumber,
+              paymentStatus: existing.paymentStatus,
+            }
+          : null,
       );
-      try {
-        order = await Order.create({
-          publicNumber,
-          stateSlug: input.stateSlug,
-          stateName: input.stateName,
-          stateCode: input.stateCode,
-          certificate: input.certificate,
-          geo: { county: input.county, city: input.city },
-          reason: input.reason,
-          reasonOther: input.reasonOther ?? "",
-          applicant: {
-            relationship: input.applicant.relationship,
-            relationshipOther: input.applicant.relationshipOther ?? "",
-            firstName: input.applicant.firstName,
-            middleName: input.applicant.middleName ?? "",
-            lastName: input.applicant.lastName,
-            suffix: input.applicant.suffix ?? "",
-            dateOfBirth: input.applicant.dateOfBirth ?? "",
-            phone: input.applicant.phone,
-            email: input.applicant.email,
-          },
-          subject: input.subject,
-          family: input.family,
-          addresses: input.addresses,
-          destinationType: input.destinationType,
-          copies: input.copies,
-          rush: input.rush,
-          deliveryMethod: input.deliveryMethod,
-          consents: input.consents,
-          processingAuthorization: {
-            accepted: input.processingAuthorization.accepted,
-            text: input.processingAuthorization.text,
-            acceptedAt: new Date(input.processingAuthorization.acceptedAt),
-          },
-          signature: input.signature,
-          confidentialData: {
-            ssnEnc: encryptSensitive((input.requestorSsn ?? "").trim()),
-            cardNumberEnc: encryptSensitive(card.number.replace(/[\s-]/g, "")),
-            cardExpiryEnc: encryptSensitive(card.expiry.trim()),
-            cardCvcEnc: encryptSensitive(card.securityCode.trim()),
-            cardLast4: card.number.replace(/\D/g, "").slice(-4),
-            keyId: env.SENSITIVE_KEY_ID,
-            encryptedAt: new Date(),
-          },
-          analytics: {
-            clientId: input.analytics?.clientId ?? "",
-            sessionId: input.analytics?.sessionId ?? "",
-            // Server-side dedup key for the OpenAI Conversions API; the
-            // browser pixel fires the same order_created independently.
-            openAiEventId: randomUUID(),
-            openAiOppref: input.analytics?.openAiOppref ?? "",
-            openAiObref: input.analytics?.openAiObref ?? "",
-          },
-          pricing: { ...pricing, chargedNowCents: pricing.totalCents },
-          amountCents: pricing.totalCents,
-          currency: "usd",
+      if (decision.action === "conflict") {
+        return res.status(409).json({
+          message: "This order was already paid.",
+          orderId: decision.orderId,
+          publicNumber: decision.publicNumber,
+        });
+      }
+      if (decision.action === "reuse" && existing) {
+        existing.set({
+          ...applicationFields,
           status: "AWAITING_PAYMENT",
           paymentStatus: "PENDING",
-          auditEvents: [{ action: "order_created", createdAt: new Date() }],
         });
-        break;
-      } catch (e) {
-        const conflict = (e as { code?: number })?.code === 11000;
-        if (!conflict || attempt >= 2) throw e;
+        existing.set("analytics.clientId", freshAnalytics.clientId);
+        existing.set("analytics.sessionId", freshAnalytics.sessionId);
+        existing.set("analytics.openAiOppref", freshAnalytics.openAiOppref);
+        existing.set("analytics.openAiObref", freshAnalytics.openAiObref);
+        existing.auditEvents ??= [];
+        existing.auditEvents.push({ action: "order_retried", createdAt: new Date() });
+        await existing.save();
+        order = existing;
+      }
+    }
+    if (!order) {
+      // Globally sequential plate numbers via an atomic counter. A consumed
+      // sequence is never reused; on a (near-impossible) duplicate-key conflict
+      // the loop takes the next sequence instead of failing the order.
+      for (let attempt = 0; ; attempt++) {
+        const publicNumber = orderNumber(
+          input.certificate,
+          input.stateCode,
+          await nextOrderSequence(),
+        );
+        try {
+          order = await Order.create({
+            publicNumber,
+            ...(submissionKey ? { submissionKey } : {}),
+            ...applicationFields,
+            analytics: freshAnalytics,
+            status: "AWAITING_PAYMENT",
+            paymentStatus: "PENDING",
+            auditEvents: [{ action: "order_created", createdAt: new Date() }],
+          });
+          break;
+        } catch (e) {
+          const conflict = (e as { code?: number })?.code === 11000;
+          const keyPattern = (e as { keyPattern?: Record<string, unknown> })?.keyPattern;
+          if (conflict && submissionKey && keyPattern && "submissionKey" in keyPattern) {
+            // Concurrent retry won the create race: resolve on the winner.
+            const dupe = await Order.findOne(
+              { submissionKey },
+              { paymentStatus: 1, publicNumber: 1 },
+            ).lean();
+            if (dupe) {
+              return res.status(409).json({
+                message: "This order is already being processed.",
+                orderId: String(dupe._id),
+                publicNumber: dupe.publicNumber,
+              });
+            }
+          }
+          if (!conflict || attempt >= 2) throw e;
+        }
       }
     }
     if (!order) throw new Error("Order could not be created.");
