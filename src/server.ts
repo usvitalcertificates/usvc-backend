@@ -5,6 +5,7 @@ import { migrateStaffRoles } from "./lib/staff-role-migration.js";
 import { startEmailOutboxWorker } from "./lib/email-outbox.js";
 import { startAnalyticsOutboxWorker } from "./lib/analytics-outbox.js";
 import { startOpenAIConversionOutboxWorker } from "./lib/openai-conversion-outbox.js";
+import { startGoogleChatOutboxWorker } from "./lib/google-chat-outbox.js";
 import { startCardPurgeWorker } from "./lib/card-purge.js";
 connectDb()
   .then(async () => {
@@ -17,6 +18,7 @@ connectDb()
       startEmailOutboxWorker();
       startAnalyticsOutboxWorker();
       startOpenAIConversionOutboxWorker();
+      startGoogleChatOutboxWorker();
       startCardPurgeWorker(env.CARD_PURGE_HOUR);
       console.log(`USVC API listening on ${env.PORT}`);
     });
