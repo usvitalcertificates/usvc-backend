@@ -426,6 +426,24 @@ test("blocks temporarily unavailable California counties", () => {
   assert.equal(isCountyTemporarilyUnavailable("AL", "Lake"), false);
 });
 
+test("rejects Vermont and Wyoming submissions (listed but not orderable)", () => {
+  for (const [slug, code, name] of [
+    ["vermont", "VT", "Vermont"],
+    ["wyoming", "WY", "Wyoming"],
+  ] as const) {
+    const input = createOrderSchema.parse({
+      ...base("BIRTH"),
+      ...SUBJECTS.BIRTH,
+      stateSlug: slug,
+      stateCode: code,
+      stateName: name,
+    });
+    const result = validateOrderSubmission(input);
+    assert.equal(result.ok, false);
+    assert.equal(result.errors["state"], "We don't currently accept orders for this state.");
+  }
+});
+
 test("requires SSN and DOB for California birth records", () => {
   const input = createOrderSchema.parse({
     ...base("BIRTH"),

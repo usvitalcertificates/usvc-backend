@@ -305,6 +305,11 @@ export function validateOrderSubmission(
   opts?: { requireCard?: boolean },
 ): OrderValidationResult {
   const errors: Record<string, string> = {};
+  // Vermont + Wyoming are listed but not accepting orders.
+  if (["VT", "WY"].includes(input.stateCode.toUpperCase())) {
+    errors["state"] = "We don't currently accept orders for this state.";
+    return { ok: false, errors };
+  }
   const required = REQUIRED[input.certificate];
 
   for (const key of required.subject) {

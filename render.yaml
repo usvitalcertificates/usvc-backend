@@ -35,3 +35,5 @@ services:
         sync: false
       - key: SENSITIVE_KEY_ID
         value: v1
+      - key: GOOGLE_CHAT_WEBHOOK_URL
+        sync: false
