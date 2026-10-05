@@ -9,6 +9,7 @@ import { OpenAIConversionDelivery } from "../models/openai-conversion-delivery.j
 import { hashOpenAIEmail } from "../lib/openai-conversion.js";
 import { Order } from "../models/order.js";
 import { StripeEvent } from "../models/staff.js";
+import { queuePaidOrderChatNotice } from "../lib/google-chat-outbox.js";
 const stripe = new Stripe(env.STRIPE_SECRET_KEY);
 export const webhookRouter = Router();
 webhookRouter.post("/stripe", async (req, res, next) => {
@@ -107,6 +108,8 @@ webhookRouter.post("/stripe", async (req, res, next) => {
             validId,
             {
               "applicant.email": 1,
+              "applicant.firstName": 1,
+              "applicant.lastName": 1,
               publicNumber: 1,
               amountCents: 1,
               "pricing.serviceCents": 1,
@@ -124,6 +127,8 @@ webhookRouter.post("/stripe", async (req, res, next) => {
             },
             { session },
           ).lean();
+          // Staff Space alert (best-effort, idempotent per order).
+          if (order) await queuePaidOrderChatNotice(order).catch(() => undefined);
           if (order?.applicant?.email) {
             const outboxId = `payment-confirmation:${validId}`;
             const queued = await EmailOutbox.updateOne(

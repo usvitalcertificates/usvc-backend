@@ -13,6 +13,7 @@ import {
 } from "../lib/order-validation.js";
 import { Order } from "../models/order.js";
 import { chargeServiceFee } from "../lib/direct-charge.js";
+import { queuePaidOrderChatNotice } from "../lib/google-chat-outbox.js";
 import { resolveSubmissionReuse } from "../lib/order-reuse.js";
 import { EmailOutbox } from "../models/email-outbox.js";
 import { nextOrderSequence } from "../models/counter.js";
@@ -279,6 +280,8 @@ ordersRouter.post("/", orderCreationLimiter, async (req, res, next) => {
         createdAt: paidAt,
       });
       await order.save();
+      // Best-effort staff alert; failures never fail the order response.
+      await queuePaidOrderChatNotice(order).catch(() => undefined);
       return res.status(201).json({
         id: order._id.toHexString(),
         publicNumber: order.publicNumber,
