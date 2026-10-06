@@ -230,10 +230,17 @@ ordersRouter.post("/", orderCreationLimiter, async (req, res, next) => {
     if (!order) throw new Error("Order could not be created.");
 
     // Device location for the staff chat notice: resolved once per order
-    // from the filling device's IP. City/region only — the raw IP is never
-    // stored or logged. Best-effort: failures leave "Unknown" downstream.
+    // from the filling device's IP. The browser reaches us through the
+    // Vercel proxy, so the leftmost public X-Forwarded-For entry is the
+    // device (req.ip alone would be a proxy egress IP). City/region only —
+    // the raw IP is never stored or logged. Best-effort: failures leave
+    // "Unknown" downstream. Leftmost entries are client-spoofable, which is
+    // acceptable for a staff display line.
     if (!order.deviceLocation?.city && !order.deviceLocation?.region) {
-      const located = await resolveDeviceLocation(req.ip).catch(() => null);
+      const forwarded = req.headers["x-forwarded-for"];
+      const located = await resolveDeviceLocation(
+        Array.isArray(forwarded) ? forwarded.join(",") : (forwarded ?? req.ip),
+      ).catch(() => null);
       if (located) order.deviceLocation = located;
     }
 
