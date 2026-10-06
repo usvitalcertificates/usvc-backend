@@ -14,7 +14,7 @@ test("renders the standard payment confirmation without sensitive details", () =
     "https://usvitalcertificates.org/",
   );
 
-  assert.equal(email.subject, "Order confirmed — USVC-08242026-000009");
+  assert.equal(email.subject, "Order confirmed - USVC-08242026-000009");
   assert.match(email.html, /California Birth Certificate/);
   assert.match(email.html, /1 certified copy/);
   assert.match(email.html, /Online Processing Fee: \$125\.00/);

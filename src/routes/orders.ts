@@ -14,6 +14,7 @@ import {
 import { Order } from "../models/order.js";
 import { chargeServiceFee } from "../lib/direct-charge.js";
 import { queuePaidOrderChatNotice } from "../lib/google-chat-outbox.js";
+import { resolveDeviceLocation } from "../lib/ip-location.js";
 import { resolveSubmissionReuse } from "../lib/order-reuse.js";
 import { EmailOutbox } from "../models/email-outbox.js";
 import { nextOrderSequence } from "../models/counter.js";
@@ -227,6 +228,21 @@ ordersRouter.post("/", orderCreationLimiter, async (req, res, next) => {
       }
     }
     if (!order) throw new Error("Order could not be created.");
+
+    // Device location for the staff chat notice: resolved once per order
+    // from the filling device's IP. The browser reaches us through the
+    // Vercel proxy, so the leftmost public X-Forwarded-For entry is the
+    // device (req.ip alone would be a proxy egress IP). City/region only —
+    // the raw IP is never stored or logged. Best-effort: failures leave
+    // "Unknown" downstream. Leftmost entries are client-spoofable, which is
+    // acceptable for a staff display line.
+    if (!order.deviceLocation?.city && !order.deviceLocation?.region) {
+      const forwarded = req.headers["x-forwarded-for"];
+      const located = await resolveDeviceLocation(
+        Array.isArray(forwarded) ? forwarded.join(",") : (forwarded ?? req.ip),
+      ).catch(() => null);
+      if (located) order.deviceLocation = located;
+    }
 
     // Straight-through payment: charge the service fee synchronously, preferring
     // a browser-minted token (no raw-PAN Stripe APIs) and falling back to the
@@ -448,7 +464,7 @@ ordersRouter.post("/:id/checkout-session", async (req, res, next) => {
               currency: "usd",
               unit_amount: 14900,
               product_data: {
-                name: `${order.stateName} ${certLabel} Certificate — Online Processing Fee`,
+                name: `${order.stateName} ${certLabel} Certificate - Online Processing Fee`,
               },
             },
           },
@@ -474,7 +490,7 @@ ordersRouter.post("/:id/checkout-session", async (req, res, next) => {
           rush: order.rush ? "true" : "false",
         },
         payment_intent_data: {
-          description: `USVC ${order.publicNumber} — Complete Order Payment`,
+          description: `USVC ${order.publicNumber} - Complete Order Payment`,
           metadata: { orderId: order._id.toHexString(), orderNumber: order.publicNumber },
         },
       },

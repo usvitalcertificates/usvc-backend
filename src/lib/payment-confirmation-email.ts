@@ -27,7 +27,7 @@ export function renderPaymentConfirmationEmail(
   order: PaymentConfirmationEmailOrder,
   frontendUrl: string,
 ): { subject: string; html: string; text: string } {
-  const subject = `Order confirmed — ${order.publicNumber}`;
+  const subject = `Order confirmed - ${order.publicNumber}`;
   const certificate = `${order.stateName} ${certificateName(order.certificate)} Certificate`;
   const copies = `${order.copies} certified ${order.copies === 1 ? "copy" : "copies"}`;
   const trackingUrl = `${frontendUrl.replace(/\/$/, "")}/track-order`;

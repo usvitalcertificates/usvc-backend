@@ -6,13 +6,21 @@ const models = mongoose.models as Record<string, any>;
 
 /** Paid-order Google Chat notifications. One row per order (`chat-notify:…`
  *  upsert id), leased + retried by the worker. Payload carries only the
- *  public order number, customer name, and flow-portal link — never PII. */
+ *  public order number, customer name, state/certificate labels, and
+ *  city-level device/shipping locations — never PII, never raw IPs. */
 const GoogleChatDeliverySchema = new Schema(
   {
     _id: { type: String, required: true },
     orderId: { type: Schema.Types.ObjectId, required: true, unique: true, index: true },
     publicNumber: { type: String, required: true },
     customerName: { type: String, required: true },
+    stateName: { type: String, default: "" },
+    certificate: { type: String, default: "" },
+    deviceCity: { type: String, default: "" },
+    deviceRegion: { type: String, default: "" },
+    shipCity: { type: String, default: "" },
+    shipState: { type: String, default: "" },
+    rush: { type: Boolean, default: false },
     status: {
       type: String,
       enum: ["PENDING", "SENDING", "SENT", "FAILED"],

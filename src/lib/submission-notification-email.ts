@@ -33,7 +33,7 @@ export function renderSubmissionNotificationEmail(
   order: SubmissionNotificationOrder,
   _frontendUrl: string,
 ) {
-  const subject = `Your order has been submitted — ${order.publicNumber}`;
+  const subject = `Your order has been submitted - ${order.publicNumber}`;
   const certificate = `${order.stateName} ${certificateName(order.certificate)} Certificate`;
   const copies = `${order.copies} certified ${order.copies === 1 ? "copy" : "copies"}${order.rush ? " (Rush)" : ""}`;
   const greeting = order.requestorFirstName ? `Hi ${order.requestorFirstName},` : "Hello,";
@@ -45,7 +45,7 @@ export function renderSubmissionNotificationEmail(
     <main style="max-width:620px;margin:0 auto;padding:40px 24px">
       <h1 style="margin:0 0 14px;color:#3c3b6e;font-size:24px;line-height:1.25">Your order is on its way to the agency</h1>
       <p style="margin:0 0 10px">${escapeHtml(greeting)}</p>
-      <p style="margin:0 0 16px">Good news — we submitted your application to the government agency on <strong>${escapeHtml(submittedDate(order.submittedAt))}</strong>. Here are your order details for your records:</p>
+      <p style="margin:0 0 16px">Good news. We submitted your application to the government agency on <strong>${escapeHtml(submittedDate(order.submittedAt))}</strong>. Here are your order details for your records:</p>
       <table style="width:100%;border-collapse:collapse;margin:0 0 16px">
         <tr><td style="padding:6px 0;color:#555">Order number</td><td style="padding:6px 0"><strong>${escapeHtml(order.publicNumber)}</strong></td></tr>
         <tr><td style="padding:6px 0;color:#555">Certificate</td><td style="padding:6px 0">${escapeHtml(certificate)}</td></tr>
@@ -53,13 +53,13 @@ export function renderSubmissionNotificationEmail(
         <tr><td style="padding:6px 0;color:#555">Submitted</td><td style="padding:6px 0">${escapeHtml(submittedDate(order.submittedAt))}</td></tr>
       </table>
       <h2 style="margin:0 0 10px;color:#3c3b6e;font-size:19px">What happens next</h2>
-      <p style="margin:0 0 10px">The agency now processes your application. Processing and delivery times vary from state to state — no action is needed from you.</p>
+      <p style="margin:0 0 10px">The agency now processes your application. Processing and delivery times vary from state to state. No action is needed from you.</p>
       <p style="margin:0 0 10px">If anything else is required, we will contact you at this email address.</p>
     </main>
   </body>
 </html>`;
 
-  const text = `Your order is on its way to the agency\n\n${greeting}\n\nGood news — we submitted your application to the government agency on ${submittedDate(order.submittedAt)}. Here are your order details for your records:\n\nOrder number: ${order.publicNumber}\nCertificate: ${certificate}\nCopies: ${copies}\nSubmitted: ${submittedDate(order.submittedAt)}\n\nWhat happens next\n\nThe agency now processes your application. Processing and delivery times vary from state to state — no action is needed from you.\n\nIf anything else is required, we will contact you at this email address.`;
+  const text = `Your order is on its way to the agency\n\n${greeting}\n\nGood news. We submitted your application to the government agency on ${submittedDate(order.submittedAt)}. Here are your order details for your records:\n\nOrder number: ${order.publicNumber}\nCertificate: ${certificate}\nCopies: ${copies}\nSubmitted: ${submittedDate(order.submittedAt)}\n\nWhat happens next\n\nThe agency now processes your application. Processing and delivery times vary from state to state. No action is needed from you.\n\nIf anything else is required, we will contact you at this email address.`;
 
   return { subject, html, text };
 }
