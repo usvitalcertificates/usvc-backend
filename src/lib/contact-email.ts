@@ -36,7 +36,7 @@ export function renderContactSupportEmail(message: ContactEmailMessage) {
 export function renderContactCustomerReceipt(message: ContactEmailMessage) {
   const reference = orderReference(message);
   return {
-    subject: "We received your message — US Vital Certificates",
+    subject: "We received your message | US Vital Certificates",
     html: `<!doctype html><html lang="en"><body style="font-family:'Times New Roman',Times,serif;color:#000"><main style="max-width:620px;margin:auto;padding:32px"><h1 style="color:#3c3b6e">Thank you for contacting US Vital Certificates</h1><p>We received your message and a USVC representative will reply within one business day.</p><p><strong>${escapeHtml(reference)}</strong></p><p>Please do not send payment card numbers or Social Security numbers by email.</p><p style="color:#555;font-size:13px">USVC is an independent service and is not a government agency.</p></main></body></html>`,
     text: `Thank you for contacting US Vital Certificates\n\nWe received your message and a USVC representative will reply within one business day.\n\n${reference}\n\nPlease do not send payment card numbers or Social Security numbers by email.\n\nUSVC is an independent service and is not a government agency.`,
   };

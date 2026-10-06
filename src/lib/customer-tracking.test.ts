@@ -17,14 +17,14 @@ test("shows the paid customer milestones without internal status codes", () => {
     customerTimeline: { paymentSuccessfulAt: paidAt, orderReceivedAt: paidAt },
   });
 
-  assert.equal(result.currentStatus, "Order Processed – Submitted to the Govt Agency");
+  assert.equal(result.currentStatus, "Order Processed - Submitted to the Govt Agency");
   assert.deepEqual(
     result.timeline.map((entry) => entry.label),
     [
       "Payment Successful",
       "Order Received",
       "Order Processing",
-      "Order Processed – Submitted to the Govt Agency",
+      "Order Processed - Submitted to the Govt Agency",
     ],
   );
   assert.match(result.notice ?? "", /Government-agency processing/);
@@ -39,7 +39,7 @@ test("does not show successful milestones for failed payments", () => {
 test("allows staff to move a paid order forward but never to alter payment status", () => {
   assert.equal(isAllowedStaffStatusTransition("PAID", "IN_REVIEW"), true);
   assert.equal(isAllowedStaffStatusTransition("IN_REVIEW", "SUBMITTED"), true);
-  // SUBMITTED is terminal: "Order Processed – Submitted to the Govt Agency" is last.
+  // SUBMITTED is terminal: "Order Processed - Submitted to the Govt Agency" is last.
   assert.equal(isAllowedStaffStatusTransition("SUBMITTED", "COMPLETED"), false);
   assert.equal(isAllowedStaffStatusTransition("SUBMITTED", "IN_REVIEW"), false);
   assert.equal(isAllowedStaffStatusTransition("PAID", "SUBMITTED"), false);

@@ -14,14 +14,14 @@ const order = {
 
 test("submission email recalls the order and explains next steps", () => {
   const email = renderSubmissionNotificationEmail(order, "https://www.usvitalcertificates.org/");
-  assert.equal(email.subject, "Your order has been submitted — USCA-BT-20260922-00A001");
+  assert.equal(email.subject, "Your order has been submitted - USCA-BT-20260922-00A001");
   for (const needle of [
     "USCA-BT-20260922-00A001",
     "California Birth Certificate",
     "2 certified copies (Rush)",
     "Hi Jordan,",
     "September 23, 2026",
-    "no action is needed",
+    "No action is needed from you",
     "vary from state to state",
   ]) {
     assert.ok(email.html.includes(needle), `html missing: ${needle}`);

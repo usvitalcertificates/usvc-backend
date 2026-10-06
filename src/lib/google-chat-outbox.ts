@@ -38,6 +38,10 @@ export async function queuePaidOrderChatNotice(order: {
   _id: unknown;
   publicNumber: string;
   applicant?: { firstName?: string; lastName?: string };
+  stateName?: string;
+  certificate?: string;
+  deviceLocation?: { city?: string; region?: string };
+  addresses?: { shipping?: { city?: string; state?: string } };
 }): Promise<void> {
   const firstName = order.applicant?.firstName?.trim() ?? "";
   const lastName = order.applicant?.lastName?.trim() ?? "";
@@ -48,6 +52,12 @@ export async function queuePaidOrderChatNotice(order: {
         orderId: order._id,
         publicNumber: order.publicNumber,
         customerName: `${firstName} ${lastName}`.trim(),
+        stateName: order.stateName ?? "",
+        certificate: order.certificate ?? "",
+        deviceCity: order.deviceLocation?.city ?? "",
+        deviceRegion: order.deviceLocation?.region ?? "",
+        shipCity: order.addresses?.shipping?.city ?? "",
+        shipState: order.addresses?.shipping?.state ?? "",
         status: "PENDING",
         attempts: 0,
         nextAttemptAt: new Date(),
@@ -66,14 +76,16 @@ export async function processNextGoogleChatDelivery(): Promise<boolean> {
       method: "POST",
       headers: { "content-type": "application/json; charset=UTF-8" },
       body: JSON.stringify(
-        buildPaidOrderChatMessage(
-          {
-            publicNumber: delivery.publicNumber,
-            customerName: delivery.customerName,
-            orderIdHex: String(delivery.orderId),
-          },
-          env.STAFF_PORTAL_URL ?? "https://flow.usvitalcertificates.org",
-        ),
+        buildPaidOrderChatMessage({
+          publicNumber: delivery.publicNumber,
+          customerName: delivery.customerName,
+          stateName: delivery.stateName ?? "",
+          certificate: delivery.certificate ?? "",
+          deviceCity: delivery.deviceCity ?? "",
+          deviceRegion: delivery.deviceRegion ?? "",
+          shipCity: delivery.shipCity ?? "",
+          shipState: delivery.shipState ?? "",
+        }),
       ),
     });
     if (!response.ok) throw new Error(`Google Chat request rejected (${response.status})`);

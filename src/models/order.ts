@@ -103,6 +103,12 @@ const OrderSchema = new Schema(
       openAiOppref: { type: String, default: "" },
       openAiObref: { type: String, default: "" },
     },
+    /** Device city/region at payment time for the staff chat notice.
+     *  City/region strings only — the raw IP is never stored or logged. */
+    deviceLocation: {
+      city: { type: String, default: "" },
+      region: { type: String, default: "" },
+    },
     pricing: {
       serviceCents: { type: Number, required: true },
       rushCents: { type: Number, required: true },

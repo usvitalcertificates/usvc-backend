@@ -2,7 +2,7 @@ export const CUSTOMER_TRACKING_STEPS = [
   { key: "paymentSuccessfulAt", label: "Payment Successful" },
   { key: "orderReceivedAt", label: "Order Received" },
   { key: "processingAt", label: "Order Processing" },
-  { key: "submittedToAgencyAt", label: "Order Processed – Submitted to the Govt Agency" },
+  { key: "submittedToAgencyAt", label: "Order Processed - Submitted to the Govt Agency" },
 ] as const;
 
 type TimelineKey = (typeof CUSTOMER_TRACKING_STEPS)[number]["key"];
