@@ -7,6 +7,7 @@ export interface ChatOrderNotice {
   deviceRegion: string;
   shipCity: string;
   shipState: string;
+  rush: boolean;
 }
 
 function certificateLabel(value: string): string {
@@ -26,10 +27,11 @@ function place(city: string, region: string): string {
   return trimmedCity || trimmedRegion || "Unknown";
 }
 
-/** Builds the Space message in the exact fixed 5-line template. Customer
- *  name is uppercased; missing parts fall back to "Unknown" so the shape
- *  never shifts. No email, phone, SSN, card data — and no raw IPs — ever
- *  enter this payload. */
+/** Builds the Space message in the exact fixed 5-line template (Google Chat
+ *  `*bold*` markup on the heading; `- RUSH` suffix for rush orders).
+ *  Customer name is uppercased; missing parts fall back to "Unknown" so the
+ *  shape never shifts. No email, phone, SSN, card data, and no raw IPs,
+ *  ever enter this payload. */
 export function buildPaidOrderChatMessage(notice: ChatOrderNotice): {
   text: string;
 } {
@@ -38,7 +40,7 @@ export function buildPaidOrderChatMessage(notice: ChatOrderNotice): {
   const state = notice.stateName.trim() || "Unknown";
   return {
     text: [
-      "New Paid Order",
+      notice.rush ? "*New Paid Order - RUSH*" : "*New Paid Order*",
       `Order ${notice.publicNumber}, ${name}`,
       `${state}, ${certificateLabel(notice.certificate)}`,
       `Device Location: ${place(notice.deviceCity, notice.deviceRegion)}`,

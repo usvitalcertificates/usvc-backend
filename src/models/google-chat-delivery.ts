@@ -20,6 +20,7 @@ const GoogleChatDeliverySchema = new Schema(
     deviceRegion: { type: String, default: "" },
     shipCity: { type: String, default: "" },
     shipState: { type: String, default: "" },
+    rush: { type: Boolean, default: false },
     status: {
       type: String,
       enum: ["PENDING", "SENDING", "SENT", "FAILED"],
