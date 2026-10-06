@@ -125,7 +125,7 @@ export async function chargeServiceFee(
       confirm: true,
       // Card-only: never offer redirect-based methods, so no return_url needed.
       automatic_payment_methods: { enabled: true, allow_redirects: "never" },
-      description: `USVC ${params.orderNumber} — Online Processing Fee`,
+      description: `USVC ${params.orderNumber} - Online Processing Fee`,
       receipt_email: params.email || undefined,
       metadata: { orderId: params.orderId, orderNumber: params.orderNumber },
     } as const;

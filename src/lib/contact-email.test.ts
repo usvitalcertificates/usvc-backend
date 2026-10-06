@@ -23,7 +23,7 @@ test("renders an escaped branded support notification", () => {
 
 test("renders a customer receipt without repeating the inquiry", () => {
   const email = renderContactCustomerReceipt(inquiry);
-  assert.equal(email.subject, "We received your message — US Vital Certificates");
+  assert.equal(email.subject, "We received your message | US Vital Certificates");
   assert.match(email.html, /within one business day/);
   assert.match(email.html, /USVC-123/);
   assert.doesNotMatch(email.html, /<img/);
