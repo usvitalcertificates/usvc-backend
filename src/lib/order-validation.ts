@@ -585,7 +585,7 @@ export function validateCorrection(input: CorrectionCandidate): OrderValidationR
 
 export function pricingBreakdown(copies: number, rush: boolean, _international: boolean) {
   const serviceCents = 14900 * copies;
-  const rushCents = rush ? 4500 : 0;
+  const rushCents = rush ? 1200 : 0;
   const totalCents = serviceCents + rushCents;
   return { serviceCents, rushCents, totalCents };
 }

@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ORDER_TYPE_CODES, encodeSequence, orderNumber, priceOrder } from "./orders.js";
-// Two-fee model: processing fee only ($149/copy + $45 rush). No bundle.
-test("prices a domestic rush order", () => assert.equal(priceOrder(2, true, false), 34300));
+// Two-fee model: processing fee only ($149/copy + $12 rush). No bundle.
+test("prices a domestic rush order", () => assert.equal(priceOrder(2, true, false), 31000));
 test("prices an international order same as domestic", () =>
   assert.equal(priceOrder(1, false, true), 14900));
 test("prices twenty copies", () => assert.equal(priceOrder(20, false, false), 298000));
