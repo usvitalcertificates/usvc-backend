@@ -14,7 +14,7 @@
 
 ## Lib (`src/lib/` + co-located `*.test.ts`)
 
-Pricing/validation: `orders.ts` (`priceOrder = copies*14900 + rush?4500:0`, `encodeSequence`, plate numbers), `order-validation.ts` (per-cert maps, county→city, 9 CA counties blocked, identity plausibility + format + Luhn checks, E.164 `+` phone, copies 1–20, total mismatch → 422), `order-substatus.ts`, `order-document.ts` (GridFS PDF, 10MB, `%PDF-` magic bytes), `customer-tracking.ts` (customer-safe timeline).
+Pricing/validation: `orders.ts` (`priceOrder = copies*14900 + rush?1200:0`, `encodeSequence`, plate numbers), `order-validation.ts` (per-cert maps, county→city, 9 CA counties blocked, identity plausibility + format + Luhn checks, E.164 `+` phone, copies 1–20, total mismatch → 422), `order-substatus.ts`, `order-document.ts` (GridFS PDF, 10MB, `%PDF-` magic bytes), `customer-tracking.ts` (customer-safe timeline).
 
 Crypto/auth/queue: `crypto.ts` (field helpers), `staff-auth.ts`, `staff-roles.ts` (`canSeePricing/canCorrectOrders` = ADMIN+CS), `staff-role-migration.ts`, `staff-queue.ts` (FIFO `createdAt`, `attentionFirst`, masked rows), `admin-staff-analytics.ts` (actor-event KPIs, date/workflow filters).
 
@@ -37,4 +37,4 @@ Staff (`requireAuth` + assigned-or-admin or `requireAdmin`): TOTP auth (`/auth/l
 
 ## Shared facts (both repos)
 
-Order milestones: Payment Successful → Order Received → Order Processing → Order Processed (Submitted to Govt Agency); exception `TO_CS` shows neutral message only. Staff flow: `PAID → IN_REVIEW → SUBMITTED` + `IN_REVIEW → TO_CS` (note required, 26-value substatus, auto-releases) → `TO_CS → GTG` → `GTG → IN_REVIEW`. Roles: ADMIN (all), FULFILLMENT (own orders), CS (own + correction + `GTG` + pricing). Invite-only, no self-register; 8+ char passwords; 30m access + 7d rotating refresh; 5 fails/15min lockout. Order numbers `US<ST>-<BT|DT|MG|DV>-<YYYYMMDD>-<DDLDDD>`, opaque everywhere. Pricing cents: copies × $149 + $45 rush; agency/shipping charged later, never in total.
+Order milestones: Payment Successful → Order Received → Order Processing → Order Processed (Submitted to Govt Agency); exception `TO_CS` shows neutral message only. Staff flow: `PAID → IN_REVIEW → SUBMITTED` + `IN_REVIEW → TO_CS` (note required, 26-value substatus, auto-releases) → `TO_CS → GTG` → `GTG → IN_REVIEW`. Roles: ADMIN (all), FULFILLMENT (own orders), CS (own + correction + `GTG` + pricing). Invite-only, no self-register; 8+ char passwords; 30m access + 7d rotating refresh; 5 fails/15min lockout. Order numbers `US<ST>-<BT|DT|MG|DV>-<YYYYMMDD>-<DDLDDD>`, opaque everywhere. Pricing cents: copies × $149 + $12 rush; agency/shipping charged later, never in total.

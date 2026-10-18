@@ -474,7 +474,7 @@ ordersRouter.post("/:id/checkout-session", async (req, res, next) => {
                   quantity: 1,
                   price_data: {
                     currency: "usd",
-                    unit_amount: 4500,
+                    unit_amount: 1200,
                     product_data: { name: "Rush Processing" },
                   },
                 },
