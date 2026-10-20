@@ -63,7 +63,9 @@ const outcomes = {
 /** Monotonic receipt updates make duplicate/out-of-order events harmless. No payload is stored. */
 export async function applyZohoWebhook(payload: unknown): Promise<void> {
   const event = eventSchema.parse(payload);
-  if (event.mailagent_key !== env.ZOHO_EMAIL_AGENT_KEY) return;
+  // The Agent-specific HMAC key authenticates callbacks without OAuth/Agent-key setup.
+  // If an Agent key is configured, retain that additional ownership restriction.
+  if (env.ZOHO_EMAIL_AGENT_KEY && event.mailagent_key !== env.ZOHO_EMAIL_AGENT_KEY) return;
   const outcome = event.event_name
     .map((name) =>
       Object.hasOwn(outcomes, name) ? outcomes[name as keyof typeof outcomes] : undefined,

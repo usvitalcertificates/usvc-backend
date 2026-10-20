@@ -19,14 +19,6 @@ services:
         sync: false
       - key: ZOHO_WEBHOOK_SECRET
         sync: false
-      - key: ZOHO_EMAIL_AGENT_KEY
-        sync: false
-      - key: ZOHO_OAUTH_CLIENT_ID
-        sync: false
-      - key: ZOHO_OAUTH_CLIENT_SECRET
-        sync: false
-      - key: ZOHO_OAUTH_REFRESH_TOKEN
-        sync: false
       - key: ANALYTICS_ENABLED
         value: "false"
       - key: GA_MEASUREMENT_ID

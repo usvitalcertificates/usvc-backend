@@ -46,7 +46,7 @@ test("live keys are rejected outside the live environment", () => {
   assert.equal(parsed.success, false);
 });
 
-test("enabled Zoho email requires sending and read-only reconciliation credentials", () => {
+test("enabled Zoho email needs only API and signed-webhook credentials", () => {
   const enabled = baseEnv({
     EMAIL_ENABLED: "true",
     EMAIL_FROM: "USVC <noreply@example.test>",
@@ -54,24 +54,14 @@ test("enabled Zoho email requires sending and read-only reconciliation credentia
     STAFF_PORTAL_URL: "https://example.test",
     ZOHO_EMAIL_API_KEY: "send-key",
     ZOHO_WEBHOOK_SECRET: "s".repeat(32),
-    ZOHO_EMAIL_AGENT_KEY: "agent",
-    ZOHO_OAUTH_CLIENT_ID: "client",
-    ZOHO_OAUTH_CLIENT_SECRET: "secret",
-    ZOHO_OAUTH_REFRESH_TOKEN: "refresh",
   });
   assert.equal(envSchema.safeParse(enabled).success, true);
-  assert.equal(envSchema.safeParse({ ...enabled, ZOHO_WEBHOOK_SECRET: undefined }).success, true);
+  assert.equal(envSchema.safeParse({ ...enabled, ZOHO_WEBHOOK_SECRET: undefined }).success, false);
   assert.equal(
     "SMTP_PASSWORD" in envSchema.parse({ ...enabled, SMTP_PASSWORD: "obsolete" }),
     false,
   );
-  for (const key of [
-    "ZOHO_EMAIL_API_KEY",
-    "ZOHO_EMAIL_AGENT_KEY",
-    "ZOHO_OAUTH_CLIENT_ID",
-    "ZOHO_OAUTH_CLIENT_SECRET",
-    "ZOHO_OAUTH_REFRESH_TOKEN",
-  ]) {
+  for (const key of ["ZOHO_EMAIL_API_KEY", "ZOHO_WEBHOOK_SECRET"]) {
     const missing = { ...enabled };
     delete missing[key as keyof typeof missing];
     assert.equal(envSchema.safeParse(missing).success, false, key);

@@ -86,10 +86,7 @@ export const envSchema = z
     if (value.EMAIL_ENABLED) {
       for (const key of [
         "ZOHO_EMAIL_API_KEY",
-        "ZOHO_EMAIL_AGENT_KEY",
-        "ZOHO_OAUTH_CLIENT_ID",
-        "ZOHO_OAUTH_CLIENT_SECRET",
-        "ZOHO_OAUTH_REFRESH_TOKEN",
+        "ZOHO_WEBHOOK_SECRET",
         "EMAIL_FROM",
         "EMAIL_REPLY_TO",
       ] as const) {

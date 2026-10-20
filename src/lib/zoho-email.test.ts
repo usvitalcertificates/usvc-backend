@@ -150,7 +150,12 @@ test("Zoho log lookup uses scoped OAuth, refreshes once after 401 and checks ref
 });
 test("Zoho reconciliation treats empty, mismatched and failed log lookups conservatively", async (t) => {
   const old = { ...env };
-  Object.assign(env, { ZOHO_EMAIL_AGENT_KEY: "agent" });
+  Object.assign(env, {
+    ZOHO_EMAIL_AGENT_KEY: "agent",
+    ZOHO_OAUTH_CLIENT_ID: "client",
+    ZOHO_OAUTH_CLIENT_SECRET: "secret",
+    ZOHO_OAUTH_REFRESH_TOKEN: "refresh",
+  });
   try {
     for (const kind of ["empty", "wrong-agent", "wrong-reference", "malformed", "oauth-failed"])
       await t.test(kind, async (st) => {
@@ -206,4 +211,25 @@ test("invalid message references and injected subjects never reach the API", asy
     });
   }
   assert.equal(mock.mock.callCount(), 0);
+});
+
+test("missing or partial optional log credentials never make OAuth requests", async (t) => {
+  const old = { ...env };
+  const mock = t.mock.method(globalThis, "fetch", async () => {
+    throw Error("must not call");
+  });
+  try {
+    Object.assign(env, {
+      ZOHO_EMAIL_AGENT_KEY: undefined,
+      ZOHO_OAUTH_CLIENT_ID: undefined,
+      ZOHO_OAUTH_CLIENT_SECRET: undefined,
+      ZOHO_OAUTH_REFRESH_TOKEN: undefined,
+    });
+    await assert.rejects(() => new ZohoEmailClient().find("opaque"), /ZOHO_LOGS_NOT_CONFIGURED/);
+    env.ZOHO_OAUTH_CLIENT_ID = "partial-client";
+    await assert.rejects(() => new ZohoEmailClient().find("opaque"), /ZOHO_LOGS_NOT_CONFIGURED/);
+    assert.equal(mock.mock.callCount(), 0);
+  } finally {
+    Object.assign(env, old);
+  }
 });

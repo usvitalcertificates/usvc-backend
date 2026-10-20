@@ -58,6 +58,14 @@ function retryAfter(value: string | null): number | undefined {
   const ms = /^\d+$/.test(value) ? Number(value) * 1000 : Date.parse(value) - Date.now();
   return Number.isFinite(ms) ? Math.min(24 * 60 * 60_000, Math.max(1000, ms)) : undefined;
 }
+export function hasZohoLogCredentials(): boolean {
+  return Boolean(
+    env.ZOHO_EMAIL_AGENT_KEY &&
+    env.ZOHO_OAUTH_CLIENT_ID &&
+    env.ZOHO_OAUTH_CLIENT_SECRET &&
+    env.ZOHO_OAUTH_REFRESH_TOKEN,
+  );
+}
 export class ZohoEmailClient {
   private token?: { value: string; until: number };
   private refreshing?: Promise<string>;
@@ -143,6 +151,7 @@ export class ZohoEmailClient {
     }
   }
   async find(clientReference: string): Promise<{ messageId: string } | null> {
+    if (!hasZohoLogCredentials()) throw new Error("ZOHO_LOGS_NOT_CONFIGURED");
     for (let attempt = 0; attempt < 2; attempt++) {
       const token = await this.accessToken();
       const url = new URL(api);

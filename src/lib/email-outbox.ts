@@ -10,7 +10,7 @@ import { RecoveryGrant, RecoveryChallenge } from "../models/recovery.js";
 import { decryptSensitive } from "./crypto.js";
 import { createHash, randomUUID } from "node:crypto";
 import type { ClientSession } from "mongoose";
-import { zohoEmail } from "./zoho-email.js";
+import { zohoEmail, hasZohoLogCredentials } from "./zoho-email.js";
 import { EmailDispatch } from "../models/email-dispatch.js";
 import { env } from "../config/env.js";
 import { ContactMessage } from "../models/contact-message.js";
@@ -475,7 +475,7 @@ export async function reconcileEmailDispatch(id: string, manual = false): Promis
   }
   let found: { messageId: string } | null = null;
   try {
-    found = await zohoEmail.find(dispatch.reference);
+    if (hasZohoLogCredentials()) found = await zohoEmail.find(dispatch.reference);
   } catch {
     /* No provider content or credentials are logged. */
   }
@@ -503,7 +503,13 @@ export async function reconcileEmailDispatch(id: string, manual = false): Promis
     await EmailDispatch.updateOne(
       { _id: id, state: { $in: ["DISPATCHING", "UNCERTAIN"] } },
       {
-        $set: { state: "UNCERTAIN", reason: "AWAITING_PROVIDER_EVIDENCE", nextReconcileAt: next },
+        $set: {
+          state: "UNCERTAIN",
+          reason: hasZohoLogCredentials()
+            ? "AWAITING_PROVIDER_EVIDENCE"
+            : "AWAITING_SIGNED_WEBHOOK",
+          nextReconcileAt: next,
+        },
         $inc: { reconcileAttempts: 1 },
         $unset: { reconcileLeaseUntil: 1 },
       },

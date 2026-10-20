@@ -28,6 +28,10 @@ test(
     const old = { ...env };
     Object.assign(env, {
       EMAIL_ENABLED: true,
+      ZOHO_EMAIL_AGENT_KEY: "synthetic-agent",
+      ZOHO_OAUTH_CLIENT_ID: "synthetic-client",
+      ZOHO_OAUTH_CLIENT_SECRET: "synthetic-secret",
+      ZOHO_OAUTH_REFRESH_TOKEN: "synthetic-refresh",
       EMAIL_FROM: "USVC <noreply@example.test>",
       EMAIL_REPLY_TO: "support@example.test",
       EMAIL_RECIPIENT_OVERRIDE: undefined,
@@ -645,6 +649,87 @@ test(
           );
           assert.equal(providerSends, 1);
           assert.equal(logReads, 1);
+        },
+      );
+      await clean();
+      await t.test(
+        "API-key/webhook-only setup holds missing callbacks and resolves a signed callback without Agent or OAuth",
+        async () => {
+          const credentials = {
+            ZOHO_EMAIL_AGENT_KEY: env.ZOHO_EMAIL_AGENT_KEY,
+            ZOHO_OAUTH_CLIENT_ID: env.ZOHO_OAUTH_CLIENT_ID,
+            ZOHO_OAUTH_CLIENT_SECRET: env.ZOHO_OAUTH_CLIENT_SECRET,
+            ZOHO_OAUTH_REFRESH_TOKEN: env.ZOHO_OAUTH_REFRESH_TOKEN,
+          };
+          Object.assign(env, {
+            ZOHO_EMAIL_AGENT_KEY: undefined,
+            ZOHO_OAUTH_CLIENT_ID: undefined,
+            ZOHO_OAUTH_CLIENT_SECRET: undefined,
+            ZOHO_OAUTH_REFRESH_TOKEN: undefined,
+          });
+          env.ZOHO_WEBHOOK_SECRET = "s".repeat(32);
+          const server = app.listen(0, "127.0.0.1");
+          await new Promise<void>((resolve) => server.once("listening", resolve));
+          const port = (server.address() as { port: number }).port;
+          try {
+            const message = await job();
+            result = { kind: "uncertain", code: "ZOHO_REQUEST_UNCERTAIN" };
+            await processNextEmail();
+            await EmailDispatch.updateOne(
+              { _id: message._id },
+              { $set: { nextReconcileAt: new Date(0) } },
+            );
+            await processNextEmail();
+            assert.equal(lookups, 0);
+            assert.equal(sends, 1);
+            assert.equal((await EmailOutbox.findById(message._id).lean())!.status, "HELD");
+            const receipt = await EmailDispatch.findById(message._id).lean();
+            assert.equal(receipt!.reason, "AWAITING_SIGNED_WEBHOOK");
+            // No callback: deadline stops housekeeping without ever authorizing a resend.
+            await EmailDispatch.updateOne(
+              { _id: message._id },
+              { $set: { deadlineAt: new Date(0), nextReconcileAt: new Date(0) } },
+            );
+            await processNextEmail();
+            assert.equal((await EmailDispatch.findById(message._id).lean())!.state, "REVIEW");
+            assert.equal(sends, 1);
+            const payload = JSON.stringify({
+              mailagent_key: "signed-actual-agent",
+              webhook_request_id: "signed-event",
+              event_name: ["delivered"],
+              event_message: [
+                {
+                  email_info: {
+                    client_reference: receipt!.reference,
+                    email_reference: "provider-id",
+                    is_smtp_trigger: false,
+                  },
+                },
+              ],
+            });
+            const signature = `ts=${Date.now()};s=${encodeURIComponent(createHmac("sha256", env.ZOHO_WEBHOOK_SECRET!).update(payload).digest("base64"))};s-algorithm=HmacSHA256`;
+            const response = await fetch(`http://127.0.0.1:${port}/webhooks/zoho`, {
+              method: "POST",
+              headers: {
+                "content-type": "application/x-www-form-urlencoded",
+                "producer-signature": signature,
+              },
+              body: new URLSearchParams({ payload }).toString(),
+            });
+            assert.equal(response.status, 200);
+            assert.equal((await EmailOutbox.findById(message._id).lean())!.status, "SENT");
+            assert.equal(
+              (await ContactMessage.findById(message.contactMessageId).lean())!.emailEvents.length,
+              1,
+            );
+            assert.equal(sends, 1);
+            assert.equal(lookups, 0);
+          } finally {
+            Object.assign(env, credentials);
+            await new Promise<void>((resolve, reject) =>
+              server.close((error) => (error ? reject(error) : resolve())),
+            );
+          }
         },
       );
       await clean();
