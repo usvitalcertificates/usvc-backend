@@ -1,4 +1,5 @@
 import mongoose from "mongoose";
+import { OUTREACH_OUTCOMES } from "../lib/outreach.js";
 import type { InferSchemaType } from "mongoose";
 
 const { Schema } = mongoose;
@@ -187,6 +188,26 @@ const OrderSchema = new Schema(
     /** Historical direct-attempt count. Legacy unpaid rows with attempts but
      *  no durable fence require reconciliation before accepting another charge. */
     chargeAttempts: { type: Number, default: 0 },
+    /** CS outreach is independent of fulfillment ownership and notes. */
+    outreach: {
+      type: new Schema(
+        {
+          outcome: { type: String, enum: OUTREACH_OUTCOMES, default: "NOT_CONTACTED" },
+          updatedAt: Date,
+          updatedBy: { type: Schema.Types.ObjectId, ref: "StaffUser" },
+          entries: [
+            {
+              authorId: { type: Schema.Types.ObjectId, required: true, ref: "StaffUser" },
+              note: { type: String, default: "", maxlength: 2000 },
+              outcome: { type: String, enum: OUTREACH_OUTCOMES },
+              createdAt: { type: Date, default: Date.now },
+            },
+          ],
+        },
+        { _id: false },
+      ),
+      default: undefined,
+    },
     notes: [{ authorId: String, body: String, createdAt: { type: Date, default: Date.now } }],
     auditEvents: [
       {
@@ -202,6 +223,8 @@ const OrderSchema = new Schema(
 
 OrderSchema.index({ email: 1, publicNumber: 1 });
 OrderSchema.index({ status: 1, createdAt: -1 });
+OrderSchema.index({ paymentStatus: 1, createdAt: -1, _id: -1 });
+OrderSchema.index({ "outreach.outcome": 1, paymentStatus: 1, createdAt: -1 });
 OrderSchema.index({ certificate: 1 });
 OrderSchema.index({ stateCode: 1 });
 OrderSchema.index({ createdAt: -1 });
