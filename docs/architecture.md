@@ -10,7 +10,7 @@
 
 - `order.ts` (`orders`): applicant, per-cert subject/family (Maps), 3 addresses, geo, copies 1–9 for new/changed quantities (historical stored quantities preserved), 6 required consents + signature, pricing snapshot + `amountCents`, `assignedTo: ObjectId|null`, `analytics {clientId, sessionId, openAiEventId, oppref, obref}`, `status {DRAFT,AWAITING_PAYMENT,PAID,IN_REVIEW,TO_CS,GTG,SUBMITTED,CANCELLED}` + `paymentStatus` + `substatus` (26-value `TO_CS` list), `document` (GridFS `order_docs` bucket fileId), `customerTimeline`, `stripe*Ids`, `notes[]`, `auditEvents[]`. Dead states: `DRAFT`/`CANCELLED` exist in the enum but no transition produces them; `REFUNDED`/`FAILED` payment states surface only in tracking. Legacy rows may still carry removed `consents.independent` / `consents.openAiEmailMatching` keys (no migration).
 - `staff.ts`: `staff_users {email unique, passwordHash Argon2, role ADMIN|FULFILLMENT|CS, accountStatus pending|active|disabled|blocked, inviteTokenHash sha256 48h, mfaSecret (encrypted), mfaEnabled, refreshTokenHash, sessionsRevokedAt, failedLoginAttempts/lockedUntil}` + `stripe_events {_id=eventId}` + `government_fees` + `attendance_records` (fee/attendance schemas ship, but no endpoints serve them yet — see `status.md`).
-- `counter.ts` (`counters.orderSeq`), `email-outbox.ts` (`email_outbox` leased jobs), `analytics-purchase-delivery.ts`, `openai-conversion-delivery.ts`, `contact-message.ts`.
+- `counter.ts` (`counters.orderSeq`), `email-outbox.ts` (`email_outbox` leased jobs), `email-dispatch.ts` (`email_dispatches` permanent transport evidence), `analytics-purchase-delivery.ts`, `openai-conversion-delivery.ts`, `contact-message.ts`.
 
 ## Lib (`src/lib/` + co-located `*.test.ts`)
 
@@ -18,7 +18,7 @@ Pricing/validation: `orders.ts` (`priceOrder = 14900 + (copies-1)*7000 + (rush?1
 
 Crypto/auth/queue: `crypto.ts` (field helpers), `staff-auth.ts`, `staff-roles.ts` (`canSeePricing/canCorrectOrders` = ADMIN+CS), `staff-role-migration.ts`, `staff-queue.ts` (FIFO `createdAt`, `attentionFirst`, masked rows), `admin-staff-analytics.ts` (actor-event KPIs, date/workflow filters).
 
-Email/analytics: `email-outbox.ts` (leased retries, idempotency keys), `staff-email.ts`, `payment-confirmation-email.ts` (rush-branch copy, text-only, no `<img>`), `submission-notification-email.ts`, `contact-email.ts` + `contact-validation.ts`, `analytics-purchase.ts` + `analytics-outbox.ts`, `openai-conversion.ts` + `openai-conversion-outbox.ts` (always includes SHA-256 email hash for paid orders, no opt-in).
+Email/analytics: `email-outbox.ts` (leased jobs, fenced Zoho dispatch, evidence-based reconciliation and transactional acceptance audits), `staff-email.ts`, `payment-confirmation-email.ts` (rush-branch copy, text-only, no `<img>`), `submission-notification-email.ts`, `contact-email.ts` + `contact-validation.ts`, `analytics-purchase.ts` + `analytics-outbox.ts`, `openai-conversion.ts` + `openai-conversion-outbox.ts` (always includes SHA-256 email hash for paid orders, no opt-in).
 
 ## Payment safety
 
@@ -29,7 +29,7 @@ Email/analytics: `email-outbox.ts` (leased retries, idempotency keys), `staff-em
 ## Middleware + config
 
 - `middleware/auth.ts`: `requireAuth` (Bearer JWT) → `requireActiveStaff` (refuses disabled/blocked + pre-revocation tokens, touches `lastActivityAt`) → `requireAdmin` (`role==ADMIN`). 5-fail/15m lockout, 10m MFA token, 30m access + 7d rotating refresh. Coverage note: `requireActiveStaff` gates `/staff/*` and `/admin/*`, but the `orders.ts` staff endpoints (detail/audit/status/document) check `requireAuth` alone — see `status.md` backlog.
-- `config/env.ts`: Zod-parsed, fail-closed (prefix checks `mongodb`, `sk_`, `whsec_`, `pk_`, `re_`, `G-`; requires Resend set when `EMAIL_ENABLED=true`, GA4 when `ANALYTICS_ENABLED=true`, OpenAI when enabled).
+- `config/env.ts`: Zod-parsed, fail-closed (prefix checks `mongodb`, `sk_`, `whsec_`, `pk_`, `G-`; requires Zoho send/Agent/OAuth credentials plus valid sender/Reply-To when `EMAIL_ENABLED=true`, GA4 when `ANALYTICS_ENABLED=true`, OpenAI when enabled).
 
 ## API contracts
 
@@ -60,3 +60,11 @@ Recovery uses `applicationRevision` and the shared payment reservation filter to
 ## Customer email presentation and resume URLs
 
 `customer-email-layout.ts` supplies email-safe presentation tables, typography, CTA markup and the support/website/dynamic-year footer for customer messages. Internal notifications remain separate. `recovery-email.ts` renders link/code messages without changing their plain-text contract. `recovery-url.ts` builds descriptive order-specific fragment links; URL context never authorizes access. SELF requests with an order number create order-scoped grants; email-only requests remain email-scoped.
+
+## Zoho CPaaS transport
+
+`zoho-email.ts` sends JSON over HTTPS to the India API and refreshes read-only log OAuth tokens through the India account service. Sending keys and OAuth credentials stay server-only; tracking is disabled explicitly. Templates and all public/recovery APIs are unchanged.
+
+The outbox reserves an `email_dispatches` record transactionally before sending, using an opaque stable reference. Receipts contain only record IDs, timestamps, sanitized states/codes and provider IDs. A definite retryable rejection can requeue; a timeout/crash/ambiguous response cannot. Unknown attempts reconcile via reference-filtered logs, with a 24-hour/earlier-expiry cutoff and manual review. Provider acceptance, not inbox delivery, maps to existing SENT/audit semantics. Receipts survive recovery TTL deletion; acceptance finalization and audit events share a transaction. Previously attempted legacy jobs are held instead of being replayed through Zoho. The new release has no Resend client, package or fallback.
+
+See [Zoho environment setup and cutover](zoho-email-migration.md) for both repositories, OAuth scope, staging recipient overrides, old-key removal, operations-only reporting/reconciliation, queue review and rollback. No infrastructure service type, mailbox provider, payment flow or frontend variable changes are required.

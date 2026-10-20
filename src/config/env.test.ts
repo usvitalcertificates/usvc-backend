@@ -45,3 +45,37 @@ test("live keys are rejected outside the live environment", () => {
   });
   assert.equal(parsed.success, false);
 });
+
+test("enabled Zoho email requires sending and read-only reconciliation credentials", () => {
+  const enabled = baseEnv({
+    EMAIL_ENABLED: "true",
+    EMAIL_FROM: "USVC <noreply@example.test>",
+    EMAIL_REPLY_TO: "support@example.test",
+    STAFF_PORTAL_URL: "https://example.test",
+    ZOHO_EMAIL_API_KEY: "send-key",
+    ZOHO_EMAIL_AGENT_KEY: "agent",
+    ZOHO_OAUTH_CLIENT_ID: "client",
+    ZOHO_OAUTH_CLIENT_SECRET: "secret",
+    ZOHO_OAUTH_REFRESH_TOKEN: "refresh",
+  });
+  assert.equal(envSchema.safeParse(enabled).success, true);
+  for (const key of [
+    "ZOHO_EMAIL_API_KEY",
+    "ZOHO_EMAIL_AGENT_KEY",
+    "ZOHO_OAUTH_CLIENT_ID",
+    "ZOHO_OAUTH_CLIENT_SECRET",
+    "ZOHO_OAUTH_REFRESH_TOKEN",
+  ]) {
+    const missing = { ...enabled };
+    delete missing[key as keyof typeof missing];
+    assert.equal(envSchema.safeParse(missing).success, false, key);
+  }
+  assert.equal(
+    envSchema.safeParse({ ...enabled, ZOHO_EMAIL_API_KEY: "Zoho-enczapikey prefixed-key" }).success,
+    false,
+  );
+  assert.equal(
+    envSchema.safeParse({ ...enabled, EMAIL_FROM: "invalid\r\nBcc: someone@example.test" }).success,
+    false,
+  );
+});

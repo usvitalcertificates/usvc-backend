@@ -39,7 +39,7 @@ const EmailOutboxSchema = new Schema(
     },
     status: {
       type: String,
-      enum: ["PENDING", "SENDING", "SENT", "FAILED", "SKIPPED"],
+      enum: ["PENDING", "SENDING", "SENT", "FAILED", "SKIPPED", "HELD"],
       default: "PENDING",
       index: true,
     },

@@ -8,7 +8,10 @@ import {
 } from "./payment-recovery.js";
 import { RecoveryGrant, RecoveryChallenge } from "../models/recovery.js";
 import { decryptSensitive } from "./crypto.js";
-import { Resend } from "resend";
+import { createHash, randomUUID } from "node:crypto";
+import type { ClientSession } from "mongoose";
+import { zohoEmail } from "./zoho-email.js";
+import { EmailDispatch } from "../models/email-dispatch.js";
 import { env } from "../config/env.js";
 import { ContactMessage } from "../models/contact-message.js";
 import { EmailOutbox } from "../models/email-outbox.js";
@@ -31,7 +34,7 @@ export function retryDelayMs(attempts: number): number {
 
 export function sanitizeEmailError(error: unknown): string {
   const message = error instanceof Error ? error.message : "Email provider request failed";
-  return message.replace(/[\r\n]+/g, " ").slice(0, 500);
+  return /^ZOHO_[A-Z0-9_]+$/.test(message) ? message : "Email delivery temporarily unavailable";
 }
 
 async function leaseNextMessage(now: Date) {
@@ -55,6 +58,16 @@ async function leaseNextMessage(now: Date) {
 
 export async function processNextEmail(): Promise<boolean> {
   if (!env.EMAIL_ENABLED) return false;
+  // Held legacy invitation jobs must not retain expired setup tokens indefinitely.
+  await EmailOutbox.updateMany(
+    {
+      template: "STAFF_INVITATION",
+      createdAt: { $lte: new Date(Date.now() - 48 * 60 * 60_000) },
+      setupToken: { $exists: true },
+    },
+    { $unset: { setupToken: 1 } },
+  );
+  if (await reconcileNextEmail()) return true;
   await expireOrphanedPaymentRecoveries();
   await EmailOutbox.updateMany(
     {
@@ -70,6 +83,40 @@ export async function processNextEmail(): Promise<boolean> {
   const message = await leaseNextMessage(new Date());
   if (!message) return false;
 
+  let dispatch = await EmailDispatch.findById(message._id).lean();
+  if (!dispatch) {
+    try {
+      dispatch = (
+        await EmailDispatch.create({
+          _id: message._id,
+          provider: message.attempts > 1 ? "LEGACY" : "ZOHO",
+          reference: createHash("sha256")
+            .update(`${env.MONGODB_DB_NAME}:${message._id}`)
+            .digest("hex"),
+          state: message.attempts > 1 ? "REVIEW" : "READY",
+          ...(message.attempts > 1 ? { reason: "LEGACY_DISPATCH_REQUIRES_REVIEW" } : {}),
+          template: message.template,
+          orderId: message.orderId,
+          contactMessageId: message.contactMessageId,
+          staffUserId: message.staffUserId,
+        })
+      ).toObject();
+    } catch (error) {
+      if ((error as { code?: number }).code !== 11000) throw error;
+      dispatch = await EmailDispatch.findById(message._id).lean();
+    }
+  }
+  const lease = { _id: message._id, status: "SENDING", attempts: message.attempts };
+  if (!dispatch || dispatch.state !== "READY") {
+    if (dispatch?.state === "ACCEPTED") await finishAcceptedEmail(dispatch);
+    else
+      await EmailOutbox.updateOne(lease, {
+        $set: { status: "HELD", lastError: "Email dispatch requires reconciliation" },
+        $unset: { leaseExpiresAt: 1 },
+      });
+    return true;
+  }
+  let dispatched = false;
   try {
     // Stable year keeps provider-idempotent payloads identical across New Year retries.
     const emailYear = message.createdAt.getUTCFullYear();
@@ -77,7 +124,14 @@ export async function processNextEmail(): Promise<boolean> {
     let replyTo: string;
     if (message.template === "PAYMENT_RECOVERY") {
       const prepared = await preparePaymentRecovery(message);
-      if (!prepared) return true;
+      if (!prepared) {
+        if ((await EmailOutbox.findById(message._id).select("status").lean())?.status === "SKIPPED")
+          await EmailDispatch.updateOne(
+            { _id: message._id, state: "READY" },
+            { $set: { state: "SKIPPED", reason: "PAYMENT_RECOVERY_INELIGIBLE" } },
+          );
+        return true;
+      }
       email = prepared;
       replyTo = env.EMAIL_REPLY_TO!;
     } else if (message.template === "RECOVERY_LINK" || message.template === "RECOVERY_CODE") {
@@ -101,6 +155,10 @@ export async function processNextEmail(): Promise<boolean> {
         !message.recoverySecret
       ) {
         await EmailOutbox.deleteOne({ _id: message._id });
+        await EmailDispatch.updateOne(
+          { _id: message._id, state: "READY" },
+          { $set: { state: "SKIPPED", reason: "EMAIL_GRANT_NO_LONGER_VALID" } },
+        );
         return true;
       }
       const secret = decryptSensitive(message.recoverySecret);
@@ -154,7 +212,7 @@ export async function processNextEmail(): Promise<boolean> {
     } else if (message.template === "STAFF_INVITATION") {
       // Top-level branch: invitation jobs carry no contactMessageId, so they
       // must never fall through to the contact lookup below (it throws and
-      // the invite dies in retries without ever reaching Resend).
+      // the invite dies in retries without ever reaching the provider).
       const staff = await StaffUser.findById(message.staffUserId).select("+inviteTokenHash").lean();
       const jobToken = (message as { setupToken?: string }).setupToken;
       const resolved = resolveStaffInvitation(
@@ -164,6 +222,10 @@ export async function processNextEmail(): Promise<boolean> {
       );
       if ("drop" in resolved) {
         await EmailOutbox.deleteOne({ _id: message._id });
+        await EmailDispatch.updateOne(
+          { _id: message._id, state: "READY" },
+          { $set: { state: "SKIPPED", reason: "EMAIL_GRANT_NO_LONGER_VALID" } },
+        );
         return true;
       }
       email = resolved.email;
@@ -180,8 +242,51 @@ export async function processNextEmail(): Promise<boolean> {
       }
     }
     const recipient = env.EMAIL_RECIPIENT_OVERRIDE ?? message.recipient;
-    const resend = new Resend(env.RESEND_API_KEY!);
-    const result = await resend.emails.send(
+    const now = new Date();
+    const expiry =
+      message.recoveryExpiresAt ??
+      (message.template === "STAFF_INVITATION"
+        ? new Date(message.createdAt.getTime() + 48 * 60 * 60_000)
+        : undefined);
+    if (expiry && expiry <= now) {
+      await EmailDispatch.updateOne(
+        { _id: message._id, state: "READY" },
+        { $set: { state: "SKIPPED", reason: "EMAIL_EXPIRED" } },
+      );
+      await EmailOutbox.updateOne(lease, {
+        $set: { status: "SKIPPED" },
+        $unset: { leaseExpiresAt: 1, setupToken: 1, recoverySecret: 1, recoveryContent: 1 },
+      });
+      return true;
+    }
+    const dispatchToken = randomUUID();
+    const deadlineAt = new Date(
+      Math.min(now.getTime() + 24 * 60 * 60_000, expiry?.getTime() ?? Infinity),
+    );
+    await mongoose.connection.transaction(async (session) => {
+      const owned = await EmailOutbox.updateOne(
+        { ...lease, leaseExpiresAt: { $gt: new Date() } },
+        { $set: { leaseExpiresAt: new Date(Date.now() + LEASE_MS) } },
+        { session },
+      );
+      if (!owned.matchedCount) throw new Error("Email lease lost");
+      const reserved = await EmailDispatch.updateOne(
+        { _id: message._id, state: "READY" },
+        {
+          $set: {
+            state: "DISPATCHING",
+            dispatchToken,
+            startedAt: now,
+            deadlineAt,
+            nextReconcileAt: new Date(now.getTime() + LEASE_MS),
+          },
+        },
+        { session },
+      );
+      if (!reserved.modifiedCount) throw new Error("Email dispatch already reserved");
+    });
+    dispatched = true;
+    const result = await zohoEmail.send(
       {
         from: env.EMAIL_FROM!,
         to: recipient,
@@ -190,37 +295,83 @@ export async function processNextEmail(): Promise<boolean> {
         html: email.html,
         text: email.text,
       },
-      { idempotencyKey: message._id },
+      dispatch.reference,
     );
-    if (result.error) throw new Error(result.error.message);
-
-    const sentAt = new Date();
-    await mongoose.connection.transaction(async (session) => {
-      const updated = await EmailOutbox.updateOne(
-        { _id: message._id, status: "SENDING", attempts: message.attempts },
+    if (result.kind === "accepted") {
+      await EmailDispatch.updateOne(
+        { _id: message._id, dispatchToken, state: { $in: ["DISPATCHING", "UNCERTAIN", "REVIEW"] } },
         {
           $set: {
-            status: "SENT",
-            providerMessageId: result.data?.id,
-            sentAt,
+            state: "ACCEPTED",
+            providerMessageId: result.messageId,
+            acceptedAt: new Date(),
+            nextReconcileAt: new Date(),
           },
-          // Single-use setup tokens must not linger once delivered.
-          $unset: {
-            leaseExpiresAt: 1,
-            lastError: 1,
-            setupToken: 1,
-            recoverySecret: 1,
-            recoveryContent: 1,
+          $unset: { reconcileLeaseUntil: 1 },
+        },
+      );
+      await finishAcceptedEmail(await EmailDispatch.findById(message._id).lean());
+    } else if (result.kind === "uncertain") {
+      await EmailDispatch.updateOne(
+        { _id: message._id, dispatchToken, state: "DISPATCHING" },
+        {
+          $set: {
+            state: "UNCERTAIN",
+            reason: result.code,
+            nextReconcileAt: new Date(Date.now() + 60_000),
           },
         },
-        { session },
       );
-      if (updated.modifiedCount && message.template === "PAYMENT_RECOVERY")
-        await recoveryEmailOutcome(message.orderId, "SENT", session);
-    });
-    if (message.template !== "PAYMENT_RECOVERY")
-      await recordEmailAudit(message, "sent", sentAt, { providerMessageId: result.data?.id });
+      await EmailOutbox.updateOne(lease, {
+        $set: { status: "HELD", lastError: "Email delivery result is uncertain" },
+        $unset: { leaseExpiresAt: 1 },
+      });
+    } else {
+      const retry = result.retryable && message.attempts < MAX_ATTEMPTS;
+      await mongoose.connection.transaction(async (session) => {
+        const recorded = await EmailDispatch.updateOne(
+          { _id: message._id, dispatchToken, state: "DISPATCHING" },
+          {
+            $set: { state: retry ? "READY" : "FAILED", reason: result.code },
+            $unset: { nextReconcileAt: 1, reconcileLeaseUntil: 1 },
+          },
+          { session },
+        );
+        if (!recorded.modifiedCount) return;
+        // A newer worker may have reclaimed the lease only to hold this dispatch.
+        // The receipt's dispatchToken is the authority for this definitive result.
+        await EmailOutbox.updateOne(
+          { _id: message._id, status: { $in: ["SENDING", "HELD", "PENDING"] } },
+          {
+            $set: {
+              status: retry ? "PENDING" : "FAILED",
+              nextAttemptAt: new Date(
+                Date.now() + Math.max(retryDelayMs(message.attempts), result.retryAfterMs ?? 0),
+              ),
+              lastError: message.template.includes("RECOVERY")
+                ? "Recovery email delivery failed"
+                : result.code,
+            },
+            $unset: {
+              leaseExpiresAt: 1,
+              ...(!retry ? { setupToken: 1, recoverySecret: 1, recoveryContent: 1 } : {}),
+            },
+          },
+          { session },
+        );
+        if (!retry)
+          await recordEmailAudit(
+            message,
+            "failed",
+            new Date(),
+            { attempts: message.attempts, code: result.code },
+            session,
+          );
+      });
+    }
   } catch (error) {
+    // Once dispatch was reserved, even a local DB failure must not enter the send-retry path.
+    if (dispatched) return true;
     const failedPermanently = message.attempts >= MAX_ATTEMPTS;
     const now = new Date();
     await mongoose.connection.transaction(async (session) => {
@@ -237,17 +388,143 @@ export async function processNextEmail(): Promise<boolean> {
           },
           $unset: {
             leaseExpiresAt: 1,
-            ...(failedPermanently ? { recoverySecret: 1, recoveryContent: 1 } : {}),
+            ...(failedPermanently ? { setupToken: 1, recoverySecret: 1, recoveryContent: 1 } : {}),
           },
         },
         { session },
       );
-      if (updated.modifiedCount && failedPermanently && message.template === "PAYMENT_RECOVERY")
-        await recoveryEmailOutcome(message.orderId, "FAILED", session);
+      if (updated.modifiedCount && failedPermanently)
+        await EmailDispatch.updateOne(
+          { _id: message._id, state: "READY" },
+          { $set: { state: "FAILED", reason: "EMAIL_PREPARATION_FAILED" } },
+          { session },
+        );
+      if (updated.modifiedCount && failedPermanently)
+        await recordEmailAudit(message, "failed", now, { attempts: message.attempts }, session);
     });
-    if (failedPermanently && message.template !== "PAYMENT_RECOVERY")
-      await recordEmailAudit(message, "failed", now, { attempts: message.attempts });
   }
+  return true;
+}
+
+async function finishAcceptedEmail(dispatch: any): Promise<void> {
+  if (!dispatch || dispatch.state !== "ACCEPTED") return;
+  await mongoose.connection.transaction(async (session) => {
+    const claimed = await EmailDispatch.updateOne(
+      { _id: dispatch._id, state: "ACCEPTED", finalizedAt: { $exists: false } },
+      { $set: { finalizedAt: new Date() }, $unset: { nextReconcileAt: 1, reconcileLeaseUntil: 1 } },
+      { session },
+    );
+    await EmailOutbox.updateOne(
+      { _id: dispatch._id },
+      {
+        $set: {
+          status: "SENT",
+          providerMessageId: dispatch.providerMessageId,
+          sentAt: dispatch.acceptedAt,
+        },
+        $unset: {
+          leaseExpiresAt: 1,
+          lastError: 1,
+          setupToken: 1,
+          recoverySecret: 1,
+          recoveryContent: 1,
+        },
+      },
+      { session },
+    );
+    if (!claimed.modifiedCount) return;
+    await recordEmailAudit(
+      dispatch,
+      "sent",
+      dispatch.acceptedAt ?? new Date(),
+      { provider: "ZOHO", providerMessageId: dispatch.providerMessageId },
+      session,
+    );
+  });
+}
+
+export async function reconcileEmailDispatch(id: string, manual = false): Promise<void> {
+  const dispatch = await EmailDispatch.findById(id).lean();
+  if (!dispatch) return;
+  if (dispatch.state === "ACCEPTED") {
+    await finishAcceptedEmail(dispatch);
+    return;
+  }
+  if (
+    dispatch.provider !== "ZOHO" ||
+    !["DISPATCHING", "UNCERTAIN", ...(manual ? ["REVIEW"] : [])].includes(dispatch.state)
+  )
+    return;
+  const now = new Date();
+  if (!manual && dispatch.deadlineAt && dispatch.deadlineAt <= now) {
+    await EmailDispatch.updateOne(
+      { _id: id, state: { $in: ["DISPATCHING", "UNCERTAIN"] } },
+      {
+        $set: { state: "REVIEW", reason: "RECONCILIATION_DEADLINE" },
+        $unset: { nextReconcileAt: 1, reconcileLeaseUntil: 1 },
+      },
+    );
+    await EmailOutbox.updateOne(
+      { _id: id, status: { $ne: "SENT" } },
+      {
+        $set: { status: "HELD", lastError: "Email delivery requires operator review" },
+        $unset: { leaseExpiresAt: 1, recoverySecret: 1, recoveryContent: 1, setupToken: 1 },
+      },
+    );
+    return;
+  }
+  let found: { messageId: string } | null = null;
+  try {
+    found = await zohoEmail.find(dispatch.reference);
+  } catch {
+    /* No provider content or credentials are logged. */
+  }
+  if (found) {
+    await EmailDispatch.updateOne(
+      { _id: id, state: { $in: ["DISPATCHING", "UNCERTAIN", "REVIEW"] } },
+      {
+        $set: {
+          state: "ACCEPTED",
+          providerMessageId: found.messageId,
+          acceptedAt: now,
+          nextReconcileAt: now,
+        },
+      },
+    );
+    await finishAcceptedEmail(await EmailDispatch.findById(id).lean());
+  } else if (!manual) {
+    const count = (dispatch.reconcileAttempts ?? 0) + 1;
+    const next = new Date(
+      Math.min(
+        now.getTime() + Math.min(60 * 60_000, 60_000 * 2 ** Math.min(count, 6)),
+        dispatch.deadlineAt?.getTime() ?? Infinity,
+      ),
+    );
+    await EmailDispatch.updateOne(
+      { _id: id, state: { $in: ["DISPATCHING", "UNCERTAIN"] } },
+      {
+        $set: { state: "UNCERTAIN", reason: "AWAITING_PROVIDER_EVIDENCE", nextReconcileAt: next },
+        $inc: { reconcileAttempts: 1 },
+        $unset: { reconcileLeaseUntil: 1 },
+      },
+    );
+  }
+}
+
+async function reconcileNextEmail(): Promise<boolean> {
+  const now = new Date();
+  const dispatch = await EmailDispatch.findOneAndUpdate(
+    {
+      state: { $in: ["DISPATCHING", "UNCERTAIN", "ACCEPTED"] },
+      finalizedAt: { $exists: false },
+      nextReconcileAt: { $lte: now },
+      $or: [{ reconcileLeaseUntil: { $exists: false } }, { reconcileLeaseUntil: { $lte: now } }],
+    },
+    { $set: { reconcileLeaseUntil: new Date(now.getTime() + 60_000) } },
+    { returnDocument: "after", sort: { nextReconcileAt: 1 } },
+  ).lean();
+  if (!dispatch) return false;
+  await reconcileEmailDispatch(dispatch._id);
   return true;
 }
 
@@ -261,9 +538,10 @@ async function recordEmailAudit(
   outcome: "sent" | "failed",
   createdAt: Date,
   metadata: Record<string, unknown>,
+  session?: ClientSession,
 ): Promise<void> {
   if (message.template === "PAYMENT_RECOVERY") {
-    await recoveryEmailOutcome(message.orderId, outcome === "sent" ? "SENT" : "FAILED");
+    await recoveryEmailOutcome(message.orderId, outcome === "sent" ? "SENT" : "FAILED", session);
     return;
   }
   if (message.template.startsWith("RECOVERY_")) return;
@@ -287,6 +565,7 @@ async function recordEmailAudit(
           },
         },
       },
+      { session },
     );
     return;
   }
@@ -302,6 +581,7 @@ async function recordEmailAudit(
           },
         },
       },
+      { session },
     );
     return;
   }
@@ -316,6 +596,7 @@ async function recordEmailAudit(
         },
       },
     },
+    { session },
   );
 }
 

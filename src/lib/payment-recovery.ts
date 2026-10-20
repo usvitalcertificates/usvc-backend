@@ -1,3 +1,4 @@
+import { EmailDispatch } from "../models/email-dispatch.js";
 import mongoose, { type ClientSession } from "mongoose";
 import Stripe from "stripe";
 import { env } from "../config/env.js";
@@ -245,7 +246,13 @@ export async function expireOrphanedPaymentRecoveries() {
     .lean();
   for (const order of orders) {
     await mongoose.connection.transaction(async (session) => {
-      if (!(await EmailOutbox.exists({ _id: `payment_recovery_${order._id}` }).session(session)))
+      if (
+        !(await EmailOutbox.exists({ _id: `payment_recovery_${order._id}` }).session(session)) &&
+        !(await EmailDispatch.exists({
+          _id: `payment_recovery_${order._id}`,
+          state: { $in: ["DISPATCHING", "UNCERTAIN", "REVIEW", "ACCEPTED"] },
+        }).session(session))
+      )
         await recoveryEmailOutcome(order._id, "SKIPPED", session);
     });
   }

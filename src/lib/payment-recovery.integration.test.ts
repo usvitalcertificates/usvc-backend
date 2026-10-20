@@ -3,7 +3,8 @@ import test from "node:test";
 import { randomUUID } from "node:crypto";
 import mongoose from "mongoose";
 import Stripe from "stripe";
-import { Resend } from "resend";
+import { zohoEmail } from "./zoho-email.js";
+import { EmailDispatch } from "../models/email-dispatch.js";
 import { env } from "../config/env.js";
 import { Order } from "../models/order.js";
 import { EmailOutbox } from "../models/email-outbox.js";
@@ -27,7 +28,7 @@ test(
       EMAIL_ENABLED: true,
       EMAIL_FROM: "USVC <support@example.test>",
       EMAIL_REPLY_TO: "support@example.test",
-      RESEND_API_KEY: "re_mock",
+      ZOHO_EMAIL_API_KEY: "re_mock",
       FRONTEND_URL: "https://example.test",
       PAYMENT_ENVIRONMENT: "test",
     });
@@ -61,16 +62,12 @@ test(
         mutations++;
         throw Error("Unexpected mutation");
       });
-    t.mock.method(
-      Object.getPrototypeOf(new Resend("re_mock").emails),
-      "send",
-      async (body: any, opts: any) => {
-        sent.push({ body, key: opts.idempotencyKey });
-        return providerFails
-          ? { error: { message: "private provider details" } }
-          : { data: { id: "mock_email" }, error: null };
-      },
-    );
+    t.mock.method(zohoEmail, "send", async (body: any, opts: any) => {
+      sent.push({ body, key: opts });
+      return providerFails
+        ? { kind: "rejected", retryable: true, code: "ZOHO_RATE_LIMIT" }
+        : { kind: "accepted", messageId: "mock_email" };
+    });
     const make = async (kind: "DIRECT" | "CHECKOUT" = "DIRECT", eligible = true) => {
       const attempt = {
         ...newPaymentAttempt(kind),
@@ -157,6 +154,7 @@ test(
       );
     const clean = async () => {
       await EmailOutbox.deleteMany({});
+      await EmailDispatch.deleteMany({});
       sent.length = 0;
       unavailable = providerFails = false;
     };
@@ -177,7 +175,11 @@ test(
           assert.equal(row.status, "SENT");
           assert.equal(row.recoverySecret, undefined);
           assert.equal(sent.length, 1);
-          assert.equal(sent[0].key, `payment_recovery_${order._id}`);
+          assert.equal(
+            sent[0].key,
+            (await EmailDispatch.findById(`payment_recovery_${order._id}`).lean()).reference,
+          );
+          assert.match(sent[0].key, /^[a-f0-9]{64}$/);
           const grant = await RecoveryGrant.findById(row.recoveryGrantId)
             .select("+tokenHash")
             .lean();
@@ -193,6 +195,7 @@ test(
           );
           assert.equal(mutations, 0);
           await EmailOutbox.deleteMany({});
+          await EmailDispatch.deleteMany({});
           await recordPayment(notice);
           assert.equal(await job(order._id), null);
         },
@@ -360,11 +363,12 @@ test(
           const { order, notice } = await make();
           await recordPayment(notice);
           await due(order._id);
+          providerFails = true;
+          await processNextEmail(); // Explicit rejection creates safe retry evidence.
           await EmailOutbox.updateOne(
             { _id: `payment_recovery_${order._id}` },
-            { $set: { attempts: 9 } },
+            { $set: { attempts: 9, nextAttemptAt: new Date(0) } },
           );
-          providerFails = true;
           await processNextEmail();
           const row = await job(order._id);
           assert.equal(row.status, "FAILED");
