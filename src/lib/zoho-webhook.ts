@@ -39,7 +39,7 @@ export function verifyZohoWebhook(
   return JSON.parse(payload);
 }
 const info = z.object({
-  client_reference: z.string().regex(/^[a-f0-9]{64}$/),
+  client_reference: z.string().max(512).optional(),
   email_reference: z.string().min(1).max(512),
   is_smtp_trigger: z.boolean(),
 });
@@ -74,9 +74,13 @@ export async function applyZohoWebhook(payload: unknown): Promise<void> {
     .sort((a, b) => b.rank - a.rank)[0];
   if (!outcome) return;
   for (const message of event.event_message) {
+    // Zoho setup samples and other senders can have arbitrary/no client reference.
+    // They are authenticated notifications, but cannot identify a USVC dispatch.
+    const reference = message.email_info.client_reference;
+    if (!reference || !/^[a-f0-9]{64}$/.test(reference)) continue;
     const filter = {
       provider: "ZOHO",
-      reference: message.email_info.client_reference,
+      reference,
       state: { $in: ["DISPATCHING", "UNCERTAIN", "REVIEW", "ACCEPTED"] },
     };
     const now = new Date();
