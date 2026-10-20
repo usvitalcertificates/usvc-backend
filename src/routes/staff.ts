@@ -368,7 +368,7 @@ staffRouter.get("/orders/:id", async (req, res, next) => {
   try {
     const id = z.string().min(1).parse(req.params.id);
     const user = reqUser(req);
-    const order = await Order.findById(id, { confidentialData: 0 }).lean();
+    const order = await Order.findById(id, { confidentialData: 0, outreach: 0 }).lean();
     if (!order) throw new ApiError(404, "Order not found");
     const owner = order.assignedTo ? String(order.assignedTo) : null;
     if (owner !== user.sub && user.role !== "ADMIN")

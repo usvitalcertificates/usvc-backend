@@ -16,6 +16,7 @@ const baseParams = {
   amountCents: 14900,
   card: { number: "4111 1111 1111 1111", expiry: "12/30", securityCode: "123" },
   idempotencyKey: "usvc_order_charge_order123_1",
+  paymentIntentId: "pi_saved",
 };
 
 function fakeStripe(behavior: {
@@ -34,8 +35,8 @@ function fakeStripe(behavior: {
       },
     },
     paymentIntents: {
-      create: async (args: unknown, opts: unknown) => {
-        Object.assign(store, { intentArgs: args, intentOpts: opts });
+      confirm: async (id: string, args: unknown, opts: unknown) => {
+        Object.assign(store, { confirmedIntentId: id, intentArgs: args, intentOpts: opts });
         if (behavior.throwError) throw behavior.throwError;
         return { id: behavior.intentId ?? "pi_test", status: behavior.intentStatus ?? "open" };
       },
@@ -51,20 +52,14 @@ test("parses MM/YY expiry", () => {
   assert.equal(parseCardExpiry(""), null);
 });
 
-test("charges the server-computed amount with order idempotency metadata", async () => {
+test("confirms only the saved intent with a stable attempt key", async () => {
   const seen: Record<string, unknown> = {};
   const stripe = fakeStripe({ seen, intentStatus: "succeeded", intentId: "pi_ok" });
   const result = await chargeServiceFee(stripe, baseParams);
   assert.deepEqual(result, { ok: true, paymentIntentId: "pi_ok", chargePath: "raw" });
+  assert.equal(seen.confirmedIntentId, "pi_saved");
   const intentArgs = seen.intentArgs as Record<string, unknown>;
-  assert.equal(intentArgs.amount, 14900);
-  assert.equal(intentArgs.currency, "usd");
-  assert.equal(intentArgs.confirm, true);
-  assert.deepEqual(intentArgs.automatic_payment_methods, {
-    enabled: true,
-    allow_redirects: "never",
-  });
-  assert.deepEqual((intentArgs.metadata as Record<string, string>).orderId, "order123");
+  assert.equal(intentArgs.amount, undefined, "confirmation cannot change the reserved amount");
   assert.deepEqual(
     (seen.intentOpts as Record<string, string>).idempotencyKey,
     "usvc_order_charge_order123_1",
@@ -87,7 +82,7 @@ test("token path charges without raw-PAN APIs", async () => {
     type: "card",
     card: { token: "tok_test123" },
   });
-  assert.equal(intentArgs.amount, 14900);
+  assert.equal(seen.confirmedIntentId, "pi_saved");
 });
 
 test("invalid token maps to 402 with a single attempt (no silent raw retry)", async () => {
