@@ -266,6 +266,37 @@ test(
           );
         },
       );
+      await t.test(
+        "order-number recovery issues a scoped recognizable link without exposing other applications",
+        async () => {
+          const result = await call("/recovery/request", {
+            email: "recovery@example.test",
+            publicNumber: order.publicNumber,
+          });
+          assert.equal(result.status, 200);
+          const scopedGrant = await RecoveryGrant.findOne({
+            source: "SELF",
+            orderId: order._id,
+          }).lean();
+          assert.ok(scopedGrant);
+          const job = await EmailOutbox.findOne({
+            template: "RECOVERY_LINK",
+            recoveryGrantId: scopedGrant._id,
+          })
+            .select("+recoverySecret")
+            .lean();
+          assert.ok(job);
+          await processNextEmail();
+          // Other queued messages may be ahead of this grant.
+          while ((await EmailOutbox.findById(job._id).lean())?.status === "PENDING")
+            await processNextEmail();
+          assert.ok(
+            sentEmails.some((email) =>
+              String(email.html).includes("/resume-alabama-birth-certificate#"),
+            ),
+          );
+        },
+      );
       const verified = await login();
       await t.test("verification is one-use and limits disclosure to verified email", async () => {
         assert.equal(
