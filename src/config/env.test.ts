@@ -45,3 +45,34 @@ test("live keys are rejected outside the live environment", () => {
   });
   assert.equal(parsed.success, false);
 });
+
+test("enabled Zoho email needs only API and signed-webhook credentials", () => {
+  const enabled = baseEnv({
+    EMAIL_ENABLED: "true",
+    EMAIL_FROM: "USVC <noreply@example.test>",
+    EMAIL_REPLY_TO: "support@example.test",
+    STAFF_PORTAL_URL: "https://example.test",
+    ZOHO_EMAIL_API_KEY: "send-key",
+    ZOHO_WEBHOOK_SECRET: "s".repeat(32),
+  });
+  assert.equal(envSchema.safeParse(enabled).success, true);
+  assert.equal(envSchema.safeParse({ ...enabled, ZOHO_WEBHOOK_SECRET: undefined }).success, false);
+  assert.equal(
+    "SMTP_PASSWORD" in envSchema.parse({ ...enabled, SMTP_PASSWORD: "obsolete" }),
+    false,
+  );
+  for (const key of ["ZOHO_EMAIL_API_KEY", "ZOHO_WEBHOOK_SECRET"]) {
+    const missing = { ...enabled };
+    delete missing[key as keyof typeof missing];
+    assert.equal(envSchema.safeParse(missing).success, false, key);
+  }
+  assert.equal(
+    envSchema.safeParse({ ...enabled, ZOHO_EMAIL_API_KEY: "Zoho-enczapikey prefixed-token" })
+      .success,
+    false,
+  );
+  assert.equal(
+    envSchema.safeParse({ ...enabled, EMAIL_FROM: "invalid\r\nBcc: someone@example.test" }).success,
+    false,
+  );
+});
