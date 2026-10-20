@@ -1,8 +1,10 @@
 # Backend status + remaining work
 
-Last updated: 2026-10-20. Phase 1 (public APIs) and Phase 2 (staff MVP) built.
+Last updated: 2026-10-21. Phase 1 (public APIs) and Phase 2 (staff MVP) built.
 
 ## Implemented
+
+- Signed Zoho sample compatibility (2026-10-21): reproduced HTTP 400 for a correctly HMAC-signed provider sample whose client_reference is `customer-unique-reference-to-identify-the-mail`. Reference format was incorrectly enforced during whole-payload validation. Provider references are now bounded optional strings; non-USVC or missing references return 200 without database access. Existing 64-character USVC references and receipts remain required for delivery mutations, and signature/timestamp checks remain unchanged. Regression tests prohibit database/email calls for stock/empty/missing sample references. Setup docs now generate 48-character secrets to fit Zoho's 50-character UI limit. Verification: 269/269 Node 24 tests pass without skips on disposable local replica-set databases. The new signed-sample regression reproduced 400 before the fix and now passes with zero database/email calls. Build, lint and formatting pass. Actual Zoho verification must be retried after deployment; no real emails or production data changes.
 
 - Zoho verification compatibility (2026-10-20): GET reached staging successfully but unsigned POST returned 401, conflicting with the setup UI's unauthenticated POST requirement. The endpoint now acknowledges unsigned POST as a no-op (`received:false`) before parsing events or accessing the database. Signed event processing still verifies HMAC/timestamp; invalid signatures remain 401. Tests cover empty/form/JSON verification probes and unsigned forged delivery payloads causing no dispatch/outbox/audit changes or sends. Verification: 268/268 Node 24 tests pass without skips on disposable local replica-set databases; build, lint and formatting pass. Actual Zoho Verify must be retried after deployment. No production data changes or real emails.
 
