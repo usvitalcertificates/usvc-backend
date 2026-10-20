@@ -362,6 +362,12 @@ test(
           );
           assert.equal(failed.status, 402, JSON.stringify(failed.body));
           assert.equal(failed.body.publicNumber, order.publicNumber);
+          const automatic = await EmailOutbox.findById(`payment_recovery_${order._id}`).lean();
+          assert.equal(automatic?.template, "PAYMENT_RECOVERY");
+          assert.equal(
+            automatic.nextAttemptAt.getTime() - automatic.recoveryScheduledAt.getTime(),
+            120000,
+          );
           decline = false;
           let release!: () => void;
           gate = new Promise<void>((r) => {
@@ -663,6 +669,75 @@ test(
           assert.equal(failed!.lastError, "Recovery email delivery failed");
           assert.equal(failed!.status, "PENDING");
           emailFails = false;
+        },
+      );
+      await t.test(
+        "saved unpaid copies are repriced on a safe retry and historical counts require correction",
+        async () => {
+          await RecoveryLimit.deleteMany({});
+          const saved = await make({
+            copies: 9,
+            amountCents: 134100,
+            pricing: { serviceCents: 134100, rushCents: 0, totalCents: 134100 },
+          });
+          await Order.updateOne({ _id: saved._id }, { $set: { copies: 20 } });
+          const authenticated = await login(saved._id);
+          const detail = await call(
+            `/recovery/applications/${saved._id}`,
+            undefined,
+            authenticated.cookie,
+            "GET",
+          );
+          assert.equal(detail.body.copies, 20);
+          const application = {
+            ...payload(),
+            copies: 20,
+            totalCents: 147900,
+            paymentCard: { number: "4111111111111111", expiry: "12/30", securityCode: "123" },
+            stripeCardToken: "tok_test",
+          };
+          const invalid = await call(
+            `/recovery/applications/${saved._id}/pay`,
+            { revision: 0, application },
+            authenticated.cookie,
+          );
+          assert.equal(invalid.status, 400);
+          assert.equal((await Order.findById(saved._id).lean()).amountCents, 134100);
+          const paid = await call(
+            `/recovery/applications/${saved._id}/pay`,
+            { revision: 0, application: { ...application, copies: 9, totalCents: 70900 } },
+            authenticated.cookie,
+          );
+          assert.equal(paid.status, 201, JSON.stringify(paid.body));
+          const latest = await Order.findById(saved._id).lean();
+          assert.equal(latest.amountCents, 70900);
+          assert.equal(latest.copies, 9);
+          assert.equal(latest.paymentStatus, "PAID");
+        },
+      );
+      await t.test(
+        "historical paid quantities and stored pricing survive fulfillment saves",
+        async () => {
+          const paid = await make({ paymentStatus: "PAID", status: "PAID" });
+          await Order.updateOne(
+            { _id: paid._id },
+            {
+              $set: {
+                copies: 20,
+                amountCents: 298000,
+                pricing: { serviceCents: 298000, rushCents: 0, totalCents: 298000 },
+              },
+            },
+          );
+          const legacy = await Order.findById(paid._id);
+          legacy.status = "IN_REVIEW";
+          await legacy.save();
+          const latest = await Order.findById(paid._id).lean();
+          assert.equal(latest.copies, 20);
+          assert.equal(latest.amountCents, 298000);
+          const invalid = await make();
+          invalid.copies = 10;
+          await assert.rejects(invalid.validate(), /between 1 and 9 copies/);
         },
       );
       await t.test(

@@ -17,13 +17,16 @@ const EmailOutboxSchema = new Schema(
      */
     setupToken: { type: String, select: false },
     recoverySecret: { type: String, select: false },
+    recoveryContent: { type: String, select: false },
     recoveryExpiresAt: Date,
+    recoveryScheduledAt: Date,
     recoveryGrantId: Schema.Types.ObjectId,
     recoveryChallengeId: Schema.Types.ObjectId,
     recipient: { type: String, required: true },
     template: {
       type: String,
       enum: [
+        "PAYMENT_RECOVERY",
         "RECOVERY_LINK",
         "RECOVERY_CODE",
         "PAYMENT_CONFIRMATION",
@@ -36,7 +39,7 @@ const EmailOutboxSchema = new Schema(
     },
     status: {
       type: String,
-      enum: ["PENDING", "SENDING", "SENT", "FAILED"],
+      enum: ["PENDING", "SENDING", "SENT", "FAILED", "SKIPPED"],
       default: "PENDING",
       index: true,
     },

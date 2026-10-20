@@ -5,7 +5,7 @@ const grantSchema = new Schema(
     tokenHash: { type: String, required: true, unique: true, select: false },
     email: { type: String, required: true },
     orderId: { type: Schema.Types.ObjectId },
-    source: { type: String, enum: ["SELF", "STAFF"], required: true },
+    source: { type: String, enum: ["SELF", "STAFF", "AUTOMATIC"], required: true },
     expiresAt: { type: Date, required: true },
     revokedAt: Date,
     lastCodeAt: Date,

@@ -385,6 +385,7 @@ ordersRouter.post("/:id/checkout-session", async (req, res, next) => {
         clientSecret: null,
         amountCents: order.amountCents,
       });
+    createOrderSchema.shape.copies.parse(snapshot.copies);
     // An existing open Checkout session may be reused, but never alongside
     // a direct charge. Unknown/expired-key reservations stay fenced.
     if (snapshot.paymentStatus === "REFUNDED") return processingPayment();
@@ -411,10 +412,28 @@ ordersRouter.post("/:id/checkout-session", async (req, res, next) => {
     }
     if (state !== "RETRY") return processingPayment();
     snapshot = await Order.findById(id).lean();
+    if (!snapshot) throw new ApiError(404, "Order not found");
+    const copies = createOrderSchema.shape.copies.parse(snapshot.copies);
+    const pricing = pricingBreakdown(
+      copies,
+      snapshot.rush,
+      snapshot.destinationType === "international",
+    );
     const reserved = await Order.findOneAndUpdate(
-      reservationFilter(snapshot),
       {
-        $set: { paymentAttempt: newPaymentAttempt("CHECKOUT"), paymentStatus: "PENDING" },
+        ...reservationFilter(snapshot),
+        applicationRevision: snapshot.applicationRevision ?? { $exists: false },
+        copies: snapshot.copies,
+        rush: snapshot.rush,
+      },
+      {
+        $set: {
+          paymentAttempt: newPaymentAttempt("CHECKOUT"),
+          paymentStatus: "PENDING",
+          pricing,
+          amountCents: pricing.totalCents,
+        },
+        $inc: { applicationRevision: 1 },
         $unset: { stripePaymentIntentId: "", stripeCheckoutSessionId: "" },
       },
       { returnDocument: "after" },

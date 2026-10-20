@@ -561,17 +561,19 @@ test("rejects implausible Social Security Numbers", () => {
   }
 });
 
-test("rejects 21 copies (max is 20)", () => {
-  const schema = createOrderSchema.safeParse({ ...base("BIRTH"), ...SUBJECTS.BIRTH, copies: 21 });
-  assert.equal(schema.success, false);
+test("rejects invalid copy counts (maximum nine)", () => {
+  for (const copies of [0, -1, 1.5, 10, 20]) {
+    const schema = createOrderSchema.safeParse({ ...base("BIRTH"), ...SUBJECTS.BIRTH, copies });
+    assert.equal(schema.success, false);
+  }
 });
 
-test("accepts 20 copies", () => {
+test("accepts nine discounted copies", () => {
   const input = createOrderSchema.parse({
     ...base("BIRTH"),
     ...SUBJECTS.BIRTH,
-    copies: 20,
-    totalCents: 20 * 14900,
+    copies: 9,
+    totalCents: 70900,
   });
   assert.equal(
     validateOrderSubmission(input).ok,

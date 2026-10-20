@@ -63,7 +63,21 @@ const OrderSchema = new Schema(
       billing: { type: AddressSchema, default: {} },
     },
     destinationType: { type: String, enum: ["domestic", "international"], default: "domestic" },
-    copies: { type: Number, required: true, min: 1, max: 20 },
+    copies: {
+      type: Number,
+      required: true,
+      min: 1,
+      // Unchanged historical quantities must not break fulfillment document saves.
+      // Every new or explicitly changed quantity is limited to 1–9.
+      validate: {
+        validator: function (this: mongoose.Document, copies: number) {
+          if (typeof this.isModified === "function" && !this.isNew && !this.isModified("copies"))
+            return true;
+          return Number.isInteger(copies) && copies <= 9;
+        },
+        message: "Choose between 1 and 9 copies.",
+      },
+    },
     rush: { type: Boolean, default: false },
     deliveryMethod: { type: String, default: "regular" },
     consents: {
@@ -140,6 +154,16 @@ const OrderSchema = new Schema(
     },
     /** Durable fence shared by direct payments and legacy Checkout. Never
      *  release an uncertain attempt on a timer; verify cancellation at Stripe. */
+    paymentRecoveryEmail: {
+      type: new Schema(
+        {
+          scheduledAt: Date,
+          outcome: { type: String, enum: ["QUEUED", "SENT", "SKIPPED", "FAILED"] },
+        },
+        { _id: false },
+      ),
+      default: undefined,
+    },
     paymentAttempt: {
       type: new Schema(
         {
@@ -151,6 +175,7 @@ const OrderSchema = new Schema(
             required: true,
           },
           startedAt: { type: Date, required: true },
+          recoveryEmailEligible: { type: Boolean },
         },
         { _id: false },
       ),
@@ -233,4 +258,6 @@ OrderSchema.index({ createdAt: -1 });
 OrderSchema.index({ "auditEvents.actorId": 1, "auditEvents.createdAt": -1 });
 
 export type OrderDoc = InferSchemaType<typeof OrderSchema>;
+OrderSchema.index({ "paymentRecoveryEmail.outcome": 1, "paymentRecoveryEmail.scheduledAt": 1 });
+
 export const Order = models.Order ?? model("Order", OrderSchema, "orders");

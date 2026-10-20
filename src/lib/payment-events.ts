@@ -44,7 +44,7 @@ export async function paymentNoticeForEvent(
         intent.status === "requires_payment_method" &&
         event.type === "payment_intent.payment_failed"
       )
-        return checkoutNotice(checkout, occurredAt);
+        return { ...checkoutNotice(checkout, occurredAt), confirmedFailure: true };
       return null;
     }
     if (intent.status === "succeeded") return intentNotice(intent, occurredAt);
@@ -52,13 +52,13 @@ export async function paymentNoticeForEvent(
       intent.status === "requires_payment_method" &&
       event.type === "payment_intent.payment_failed"
     )
-      return intentNotice(intent, occurredAt);
+      return { ...intentNotice(intent, occurredAt), confirmedFailure: true };
     return null;
   }
   const checkout = await stripe.checkout.sessions.retrieve(object.id);
   if (checkout.metadata?.orderId !== orderId) return null;
   if (checkout.payment_status === "paid") return checkoutNotice(checkout, occurredAt);
   if (event.type === "checkout.session.async_payment_failed")
-    return checkoutNotice(checkout, occurredAt);
+    return { ...checkoutNotice(checkout, occurredAt), confirmedFailure: true };
   return null;
 }
