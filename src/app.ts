@@ -27,7 +27,10 @@ app.use(cors({ origin: env.FRONTEND_URL, credentials: true }));
 app.get("/health", (req, res) => res.json({ status: "ok", service: "usvc-api" }));
 app.use(
   "/webhooks/zoho",
-  express.raw({ type: "application/x-www-form-urlencoded", limit: "100kb" }),
+  express.raw({
+    type: ["application/x-www-form-urlencoded", "application/json"],
+    limit: "100kb",
+  }),
   zohoWebhookRouter,
 );
 app.use("/webhooks", express.raw({ type: "application/json" }), webhookRouter);
