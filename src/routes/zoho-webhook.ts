@@ -7,6 +7,12 @@ zohoWebhookRouter.get("/", (_req, res) => {
   res.sendStatus(200);
 });
 zohoWebhookRouter.post("/", async (req, res, next) => {
+  // Zoho setup requires an unauthenticated POST reachability check. Acknowledge
+  // unsigned requests without parsing or processing any event or touching the DB.
+  if (!req.get("producer-signature")) {
+    res.status(200).json({ received: false });
+    return;
+  }
   if (!env.ZOHO_WEBHOOK_SECRET) {
     res.sendStatus(503);
     return;

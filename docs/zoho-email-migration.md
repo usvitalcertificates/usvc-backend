@@ -48,7 +48,7 @@ Keep database, encryption, Stripe, JWT, analytics and unrelated settings unchang
 1. Generate a secret locally with `openssl rand -hex 32`. Put the result in backend `ZOHO_WEBHOOK_SECRET`.
 2. In the corresponding Zoho Agent, open **Webhooks → Authentication Key** and enter exactly that same secret. Use an Agent-specific secret; it establishes the callback's identity without requiring an Agent key in USVC.
 3. Deploy the new backend code before clicking Verify. Staging URL: **`https://staging-api.usvitalcertificates.org/webhooks/zoho`**. Production URL after authorized production deployment: **`https://api.usvitalcertificates.org/webhooks/zoho`**.
-4. Leave the optional Authorization-header inputs blank. The backend validates Zoho's `producer-signature` itself. GET reachability returns 200 without exposing records; POST requires valid HMAC-SHA256 and a valid timestamp.
+4. Leave the optional Authorization-header inputs blank. The backend validates Zoho's `producer-signature` itself. GET and unsigned POST reachability checks return 200 without exposing records. Unsigned POST bodies are discarded before event parsing or database access and return `{received:false}`. Actual event processing requires valid HMAC-SHA256 and a valid timestamp; a present invalid signature returns 401.
 5. Select **Delivered**, **Soft bounces**, **Hard bounces**, and optionally **Feedback loop**. Leave open/click tracking disabled and other messaging channels unchecked. Click Verify and Add.
 6. Complete account/sender approval and Zoho DKIM/return-path DNS setup. Preserve mailbox MX; do not create duplicate SPF records. Keep DMARC aligned with the sender.
 
