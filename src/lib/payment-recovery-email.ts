@@ -1,3 +1,4 @@
+import { customerEmailLayout, emailButton } from "./customer-email-layout.js";
 const escapeHtml = (value: string) =>
   value
     .replace(/&/g, "&amp;")
@@ -14,6 +15,7 @@ export function renderPaymentRecoveryEmail(
     url: string;
   },
   frontendUrl: string,
+  year?: number,
 ) {
   const certificate = `${order.stateName} ${order.certificate.charAt(0).toUpperCase()}${order.certificate.slice(1).toLowerCase()} Certificate`;
   const introduction =
@@ -26,6 +28,10 @@ export function renderPaymentRecoveryEmail(
   return {
     subject: "Your payment wasn’t completed — resume your application",
     text: `Hi ${order.firstName || "there"},\n\n${introduction}\n\nResume your application: ${order.url}\n\nOrder ID: ${order.publicNumber}\nCertificate Type: ${certificate}\n\n${expiry}\n\n${privacy}\n\nNeed any further help? Please contact our customer support team: ${supportUrl}\n\nThank you,\nUSVC Customer Support`,
-    html: `<div style="font-family:Times New Roman,Times,serif;color:#30304e;max-width:620px;margin:auto;padding:32px 24px;line-height:1.6"><p>Hi ${escapeHtml(order.firstName || "there")},</p><p>${introduction}</p><p style="margin:28px 0"><a href="${escapeHtml(order.url)}" style="display:inline-block;background:#b22234;color:#fff;padding:12px 22px;border-radius:6px;text-decoration:none;font-weight:bold">Resume your application</a></p><p><strong>Order ID:</strong> ${escapeHtml(order.publicNumber)}<br><strong>Certificate Type:</strong> ${escapeHtml(certificate)}</p><p>${expiry}</p><p>${privacy}</p><p>Need any further help? Please <a href="${escapeHtml(supportUrl)}">contact our customer support team</a>.</p><p>Thank you,<br><strong>USVC Customer Support</strong></p></div>`,
+    html: customerEmailLayout(
+      `<p>Hi ${escapeHtml(order.firstName || "there")},</p><p>${introduction}</p>${emailButton(order.url, "Resume your application")}<div style="padding:16px;background:#f0f3fa;border:1px solid #dfe5f0;border-radius:6px"><p style="margin:0"><strong>Order ID:</strong> ${escapeHtml(order.publicNumber)}<br><strong>Certificate Type:</strong> ${escapeHtml(certificate)}</p></div><p>${expiry}</p><p>${privacy}</p><p>Need any further help? Please <a href="${escapeHtml(supportUrl)}" style="color:#3c3b6e;text-decoration:underline">contact our customer support team</a>.</p><p>Thank you,<br><strong>USVC Customer Support</strong></p>`,
+      frontendUrl,
+      year,
+    ),
   };
 }

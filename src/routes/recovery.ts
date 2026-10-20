@@ -194,7 +194,7 @@ recoveryRouter.post("/request", async (req, res, next) => {
         const { grant, token, expiresAt } = await newRecoveryGrant(
           input.email,
           "SELF",
-          undefined,
+          input.publicNumber ? found._id : undefined,
           session,
         );
         await queueRecoveryEmail(

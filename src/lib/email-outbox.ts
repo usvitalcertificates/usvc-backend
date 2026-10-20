@@ -1,3 +1,5 @@
+import { renderRecoveryEmail } from "./recovery-email.js";
+import { recoveryUrl } from "./recovery-url.js";
 import mongoose from "mongoose";
 import {
   preparePaymentRecovery,
@@ -69,6 +71,8 @@ export async function processNextEmail(): Promise<boolean> {
   if (!message) return false;
 
   try {
+    // Stable year keeps provider-idempotent payloads identical across New Year retries.
+    const emailYear = message.createdAt.getUTCFullYear();
     let email: { subject: string; html: string; text: string };
     let replyTo: string;
     if (message.template === "PAYMENT_RECOVERY") {
@@ -100,23 +104,20 @@ export async function processNextEmail(): Promise<boolean> {
         return true;
       }
       const secret = decryptSensitive(message.recoverySecret);
-      const text =
+      const recoveryGrant = await RecoveryGrant.findById(message.recoveryGrantId)
+        .select("orderId")
+        .lean();
+      const recoveryOrder = recoveryGrant?.orderId
+        ? await Order.findById(recoveryGrant.orderId).select("stateSlug certificate").lean()
+        : null;
+      email = renderRecoveryEmail(
+        message.template,
         message.template === "RECOVERY_LINK"
-          ? `Continue your saved application: ${env.FRONTEND_URL.replace(/\/$/, "")}/resume#${secret}\nThis link expires in 48 hours. You will verify your email before viewing any details. If you did not request this, ignore this email.`
-          : `Your application verification code is ${secret}. It expires in 10 minutes. Never share this code. If you did not request this, ignore this email.`;
-      email = {
-        subject:
-          message.template === "RECOVERY_LINK"
-            ? "Resume your saved USVC application"
-            : "Your USVC verification code",
-        text,
-        html: `<p>${text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>")}</p>`,
-      };
-      if (message.template === "RECOVERY_LINK") {
-        const url = `${env.FRONTEND_URL.replace(/\/$/, "")}/resume#${secret}`;
-        const safeUrl = url.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
-        email.html = `<p>Continue your saved application.</p><p><a href="${safeUrl}">Resume application</a></p><p>This link expires in 48 hours. Verify your email before viewing application details. If you did not request this, ignore this email.</p>`;
-      }
+          ? recoveryUrl(env.FRONTEND_URL, secret, recoveryOrder)
+          : secret,
+        env.FRONTEND_URL,
+        emailYear,
+      );
       replyTo = env.EMAIL_REPLY_TO!;
     } else if (message.template === "PAYMENT_CONFIRMATION") {
       const order = await Order.findById(message.orderId).lean();
@@ -130,6 +131,7 @@ export async function processNextEmail(): Promise<boolean> {
           pricing: order.pricing,
         },
         env.FRONTEND_URL,
+        emailYear,
       );
       replyTo = env.EMAIL_REPLY_TO!;
     } else if (message.template === "SUBMISSION_NOTIFICATION") {
@@ -146,6 +148,7 @@ export async function processNextEmail(): Promise<boolean> {
           submittedAt: order.customerTimeline?.submittedToAgencyAt ?? order.updatedAt,
         },
         env.FRONTEND_URL,
+        emailYear,
       );
       replyTo = env.EMAIL_REPLY_TO!;
     } else if (message.template === "STAFF_INVITATION") {
@@ -172,7 +175,7 @@ export async function processNextEmail(): Promise<boolean> {
         email = renderContactSupportEmail(contact);
         replyTo = contact.email;
       } else {
-        email = renderContactCustomerReceipt(contact);
+        email = renderContactCustomerReceipt(contact, env.FRONTEND_URL, emailYear);
         replyTo = env.EMAIL_REPLY_TO!;
       }
     }
