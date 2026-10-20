@@ -20,6 +20,12 @@ Crypto/auth/queue: `crypto.ts` (field helpers), `staff-auth.ts`, `staff-roles.ts
 
 Email/analytics: `email-outbox.ts` (leased retries, idempotency keys), `staff-email.ts`, `payment-confirmation-email.ts` (rush-branch copy, text-only, no `<img>`), `submission-notification-email.ts`, `contact-email.ts` + `contact-validation.ts`, `analytics-purchase.ts` + `analytics-outbox.ts`, `openai-conversion.ts` + `openai-conversion-outbox.ts` (always includes SHA-256 email hash for paid orders, no opt-in).
 
+## Payment safety
+
+`payment-attempts.ts` reserves direct/Checkout attempts atomically before application changes or Stripe calls. Direct payments create an unconfirmed intent using an attempt-scoped key, persist the reference, then confirm it. No timed lock release: after 60 seconds an interrupted attempt may be reconciled/cancelled, and only verified cancellation permits a fresh charge. Missing references are replayed only within 23 hours (inside Stripe's idempotency retention); older unknowns and unresolved legacy direct attempts fail closed. A 423 response without `orderId` keeps the current frontend on its form. Checkout shares the same fence, reuses open sessions, and cannot race a direct charge.
+
+`payment-state.ts` validates order/attempt/Stripe ownership, server amount, currency, and test/live environment. Atomic updates preserve staff workflow, initial milestone dates, and PAID/REFUNDED against stale failures. `payment-events.ts` resolves current Stripe state before the Mongo transaction. `payment-deliveries.ts` enqueues email/GA4/OpenAI/Chat in the same transaction as settlement; unique per-order keys dedupe every paid path. Webhook event IDs are committed in that transaction; database errors are retried, not misreported as duplicates. Internal `paymentAttempt` is absent from public projections. Drain old API processes before routing payment traffic to the new code; no paid-order migration is required.
+
 ## Middleware + config
 
 - `middleware/auth.ts`: `requireAuth` (Bearer JWT) → `requireActiveStaff` (refuses disabled/blocked + pre-revocation tokens, touches `lastActivityAt`) → `requireAdmin` (`role==ADMIN`). 5-fail/15m lockout, 10m MFA token, 30m access + 7d rotating refresh. Coverage note: `requireActiveStaff` gates `/staff/*` and `/admin/*`, but the `orders.ts` staff endpoints (detail/audit/status/document) check `requireAuth` alone — see `status.md` backlog.

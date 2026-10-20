@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import Stripe from "stripe";
 import { z } from "zod";
 import { env } from "../config/env.js";
-import { orderNumber, priceOrder } from "../lib/orders.js";
+import { orderNumber } from "../lib/orders.js";
 import {
   createOrderSchema,
   isCountyTemporarilyUnavailable,
@@ -13,9 +13,17 @@ import {
 } from "../lib/order-validation.js";
 import { Order } from "../models/order.js";
 import { chargeServiceFee } from "../lib/direct-charge.js";
-import { queuePaidOrderChatNotice } from "../lib/google-chat-outbox.js";
+import {
+  newPaymentAttempt,
+  processingPayment,
+  reservationFilter,
+  reconcilePayment,
+  ensureDirectIntent,
+  ensureCheckoutSession,
+  type AttemptOrder,
+} from "../lib/payment-attempts.js";
+import { checkoutNotice, matchesPayment, recordPayment } from "../lib/payment-state.js";
 import { resolveDeviceLocation } from "../lib/ip-location.js";
-import { resolveSubmissionReuse } from "../lib/order-reuse.js";
 import { EmailOutbox } from "../models/email-outbox.js";
 import { nextOrderSequence } from "../models/counter.js";
 import { ApiError } from "../middleware/errors.js";
@@ -150,39 +158,49 @@ ordersRouter.post("/", orderCreationLimiter, async (req, res, next) => {
     // Retry of the same fill: update the unpaid order in place instead of
     // creating a duplicate. A retry of a paid order is a conflict that the
     // browser resolves to the existing confirmation.
-    let order;
+    let order: AttemptOrder | null = null;
+    const paymentAttempt = newPaymentAttempt("DIRECT");
     if (submissionKey) {
-      const existing = await Order.findOne({ submissionKey });
-      const decision = resolveSubmissionReuse(
-        existing
-          ? {
-              _id: existing._id,
-              publicNumber: existing.publicNumber,
-              paymentStatus: existing.paymentStatus,
-            }
-          : null,
-      );
-      if (decision.action === "conflict") {
-        return res.status(409).json({
-          message: "This order was already paid.",
-          orderId: decision.orderId,
-          publicNumber: decision.publicNumber,
-        });
-      }
-      if (decision.action === "reuse" && existing) {
-        existing.set({
-          ...applicationFields,
-          status: "AWAITING_PAYMENT",
-          paymentStatus: "PENDING",
-        });
-        existing.set("analytics.clientId", freshAnalytics.clientId);
-        existing.set("analytics.sessionId", freshAnalytics.sessionId);
-        existing.set("analytics.openAiOppref", freshAnalytics.openAiOppref);
-        existing.set("analytics.openAiObref", freshAnalytics.openAiObref);
-        existing.auditEvents ??= [];
-        existing.auditEvents.push({ action: "order_retried", createdAt: new Date() });
-        await existing.save();
-        order = existing;
+      let existing = await Order.findOne({ submissionKey }).lean();
+      if (existing) {
+        let state;
+        try {
+          state = await reconcilePayment(stripe, existing);
+        } catch {
+          return processingPayment();
+        }
+        if (state === "PAID") {
+          return res.status(409).json({
+            message: "This order was already paid.",
+            orderId: String(existing._id),
+            publicNumber: existing.publicNumber,
+          });
+        }
+        if (state !== "RETRY") return processingPayment();
+        existing = await Order.findById(existing._id).lean();
+        if (!existing) throw new ApiError(404, "Order not found");
+        // Acquire the fence and replace the application in one atomic write.
+        // A stale request cannot edit an application another attempt is charging.
+        order = await Order.findOneAndUpdate(
+          reservationFilter(existing),
+          {
+            $set: {
+              ...applicationFields,
+              paymentAttempt,
+              status: "AWAITING_PAYMENT",
+              paymentStatus: "PENDING",
+              "analytics.clientId": freshAnalytics.clientId,
+              "analytics.sessionId": freshAnalytics.sessionId,
+              "analytics.openAiOppref": freshAnalytics.openAiOppref,
+              "analytics.openAiObref": freshAnalytics.openAiObref,
+            },
+            $unset: { stripePaymentIntentId: "", stripeCheckoutSessionId: "" },
+            $inc: { chargeAttempts: 1 },
+            $push: { auditEvents: { action: "order_retried", createdAt: new Date() } },
+          },
+          { returnDocument: "after" },
+        ).lean();
+        if (!order) return processingPayment();
       }
     }
     if (!order) {
@@ -196,32 +214,26 @@ ordersRouter.post("/", orderCreationLimiter, async (req, res, next) => {
           await nextOrderSequence(),
         );
         try {
-          order = await Order.create({
+          const created = await Order.create({
             publicNumber,
             ...(submissionKey ? { submissionKey } : {}),
             ...applicationFields,
+            paymentAttempt,
+            chargeAttempts: 1,
             analytics: freshAnalytics,
             status: "AWAITING_PAYMENT",
             paymentStatus: "PENDING",
             auditEvents: [{ action: "order_created", createdAt: new Date() }],
           });
+          order = created.toObject() as AttemptOrder;
           break;
         } catch (e) {
           const conflict = (e as { code?: number })?.code === 11000;
           const keyPattern = (e as { keyPattern?: Record<string, unknown> })?.keyPattern;
           if (conflict && submissionKey && keyPattern && "submissionKey" in keyPattern) {
-            // Concurrent retry won the create race: resolve on the winner.
-            const dupe = await Order.findOne(
-              { submissionKey },
-              { paymentStatus: 1, publicNumber: 1 },
-            ).lean();
-            if (dupe) {
-              return res.status(409).json({
-                message: "This order is already being processed.",
-                orderId: String(dupe._id),
-                publicNumber: dupe.publicNumber,
-              });
-            }
+            // The winner may still be charging. Do not send the browser to
+            // an unpaid confirmation page or start a second attempt.
+            return processingPayment();
           }
           if (!conflict || attempt >= 2) throw e;
         }
@@ -241,92 +253,94 @@ ordersRouter.post("/", orderCreationLimiter, async (req, res, next) => {
       const located = await resolveDeviceLocation(
         Array.isArray(forwarded) ? forwarded.join(",") : (forwarded ?? req.ip),
       ).catch(() => null);
-      if (located) order.deviceLocation = located;
+      if (located) {
+        await Order.updateOne(
+          { _id: order._id, "paymentAttempt.id": paymentAttempt.id },
+          { $set: { deviceLocation: located } },
+        );
+      }
     }
 
-    // Straight-through payment: charge the service fee synchronously, preferring
-    // a browser-minted token (no raw-PAN Stripe APIs) and falling back to the
-    // stored card details. Amount is server-computed; browser totals are never
-    // trusted. The payment_intent.succeeded webhook converges on the same PAID
-    // state idempotently; confirmation email + analytics outboxes ride it.
-    //
-    // The idempotency key is scoped per charge attempt (atomic counter): every
-    // retry mints a fresh single-use token, and Stripe rejects a reused key
-    // with differing params — so a fixed per-order key would break all retries.
-    const charged = await Order.findOneAndUpdate(
-      { _id: order._id },
-      { $inc: { chargeAttempts: 1 } },
-      { new: true, projection: { chargeAttempts: 1 } },
+    // Persist an unconfirmed intent before giving Stripe any card details.
+    // A process crash can then only leave this known intent to reconcile.
+    let intent;
+    try {
+      intent = await ensureDirectIntent(stripe, order);
+    } catch {
+      return processingPayment();
+    }
+    const claimed = await Order.findOneAndUpdate(
+      {
+        _id: order._id,
+        "paymentAttempt.id": paymentAttempt.id,
+        "paymentAttempt.state": "READY",
+        stripePaymentIntentId: intent.id,
+        paymentStatus: { $nin: ["PAID", "REFUNDED"] },
+      },
+      { $set: { "paymentAttempt.state": "CONFIRMING" } },
+      { returnDocument: "after" },
     ).lean();
-    const attempt =
-      charged?.chargeAttempts && charged.chargeAttempts > 0 ? charged.chargeAttempts : 1;
-    let charge: Awaited<ReturnType<typeof chargeServiceFee>>;
+    if (!claimed) return processingPayment();
+    let charge: Awaited<ReturnType<typeof chargeServiceFee>> | undefined;
     try {
       charge = await chargeServiceFee(stripe, {
-        orderId: order._id.toHexString(),
+        orderId: String(order._id),
         orderNumber: order.publicNumber,
-        email: order.applicant.email,
-        amountCents: pricing.totalCents,
-        card: {
-          number: card.number,
-          expiry: card.expiry,
-          securityCode: card.securityCode,
-        },
+        email: order.applicant?.email ?? "",
+        amountCents: order.amountCents,
+        card,
         cardToken: input.stripeCardToken,
-        idempotencyKey: `usvc_order_charge_${order._id.toHexString()}_${attempt}`,
+        paymentIntentId: intent.id,
+        idempotencyKey: `usvc_payment_${paymentAttempt.id}_confirm`,
       });
     } catch {
-      // Processor/infra failure (not a decline): order stays PENDING so the
-      // customer can retry; never surface internals.
-      return res.status(502).json({
-        message: "Payment could not be processed right now. Please try again in a moment.",
-      });
+      // Lost responses are uncertain, not proof of failure. Reconciliation
+      // checks the saved intent, and cancels it before permitting a new one.
     }
-    if (charge.ok) {
-      order.paymentStatus = "PAID";
-      order.status = "PAID";
-      order.stripePaymentIntentId = charge.paymentIntentId;
-      const paidAt = new Date();
-      order.customerTimeline ??= {};
-      order.customerTimeline.paymentSuccessfulAt = paidAt;
-      order.customerTimeline.orderReceivedAt = paidAt;
-      order.auditEvents.push({
-        action: "payment_confirmed_direct",
-        metadata: { paymentIntentId: charge.paymentIntentId, chargePath: charge.chargePath },
-        createdAt: paidAt,
-      });
-      await order.save();
-      // Best-effort staff alert; failures never fail the order response.
-      await queuePaidOrderChatNotice(order).catch(() => undefined);
+    let settled: "PAID" | "RETRY" | "PENDING";
+    try {
+      settled = await reconcilePayment(stripe, claimed, true);
+    } catch {
+      return processingPayment();
+    }
+    if (settled === "PAID") {
       return res.status(201).json({
-        id: order._id.toHexString(),
+        id: String(order._id),
         publicNumber: order.publicNumber,
         amountCents: order.amountCents,
         openAiEventId: order.analytics?.openAiEventId ?? "",
         paid: true as const,
       });
     }
-    // Decline / verification-needed: order stays recorded but unpaid; the
-    // customer re-enters card details on the form (never retained client-side).
-    // Terminal trace for debugging (code only — never PAN); UI gets the
-    // controlled message above.
-    console.error({
-      scope: "direct-charge",
-      orderId: order._id.toHexString(),
-      code: charge.code,
-      chargePath: input.stripeCardToken ? "token" : "raw",
-    });
-    order.paymentStatus = "FAILED";
-    order.auditEvents.push({
-      action: "payment_failed_direct",
-      metadata: { code: charge.code },
-      createdAt: new Date(),
-    });
-    await order.save();
-    return res.status(charge.httpStatus).json({
-      message: charge.message,
-      errors: { "paymentCard.number": charge.message },
-      paymentFailureCode: charge.code,
+    if (settled !== "RETRY") return processingPayment();
+    const failure =
+      charge && !charge.ok
+        ? charge
+        : {
+            httpStatus: 502,
+            code: "processor_error",
+            message: "Payment could not be processed right now. Please try again in a moment.",
+          };
+    await Order.updateOne(
+      {
+        _id: order._id,
+        "paymentAttempt.id": paymentAttempt.id,
+        paymentStatus: "FAILED",
+      },
+      {
+        $push: {
+          auditEvents: {
+            action: "payment_failed_direct",
+            metadata: { code: failure.code },
+            createdAt: new Date(),
+          },
+        },
+      },
+    );
+    return res.status(failure.httpStatus).json({
+      message: failure.message,
+      ...(failure.httpStatus === 402 ? { errors: { "paymentCard.number": failure.message } } : {}),
+      paymentFailureCode: failure.code,
       paid: false as const,
     });
   } catch (e) {
@@ -417,91 +431,64 @@ ordersRouter.post("/:id/checkout-session", async (req, res, next) => {
         422,
         "Certificate issuance is currently unavailable through this county authority.",
       );
-    if (order.paymentStatus === "PAID")
+    let snapshot = order.toObject() as AttemptOrder;
+    let state;
+    try {
+      state = await reconcilePayment(stripe, snapshot);
+    } catch {
+      return processingPayment();
+    }
+    if (state === "PAID")
       return res.json({
         alreadyPaid: true as const,
         clientSecret: null,
         amountCents: order.amountCents,
       });
-
-    const international = order.destinationType === "international";
-    const amountCents = priceOrder(order.copies, order.rush, international);
-
-    // Reuse an open session so a retried payment does not create duplicates.
-    if (order.stripeCheckoutSessionId) {
-      try {
-        const existing = await stripe.checkout.sessions.retrieve(order.stripeCheckoutSessionId);
-        if (
-          existing.status === "open" &&
-          existing.amount_total === amountCents &&
-          existing.client_secret
-        ) {
-          return res.json({
-            alreadyPaid: false as const,
-            clientSecret: existing.client_secret,
-            amountCents,
-          });
-        }
-      } catch {
-        /* Fall through and create a fresh session. */
+    // An existing open Checkout session may be reused, but never alongside
+    // a direct charge. Unknown/expired-key reservations stay fenced.
+    if (snapshot.paymentStatus === "REFUNDED") return processingPayment();
+    if (
+      state === "PENDING" &&
+      (snapshot.stripeCheckoutSessionId || snapshot.paymentAttempt?.kind === "CHECKOUT")
+    ) {
+      snapshot = await Order.findById(id).lean();
+      const existing = await ensureCheckoutSession(stripe, snapshot);
+      if (
+        existing.status === "open" &&
+        existing.client_secret &&
+        matchesPayment(
+          { ...snapshot, stripeCheckoutSessionId: existing.id },
+          checkoutNotice(existing),
+        )
+      ) {
+        return res.json({
+          alreadyPaid: false,
+          clientSecret: existing.client_secret,
+          amountCents: snapshot.amountCents,
+        });
       }
     }
-
-    const certLabel = order.certificate.charAt(0) + order.certificate.slice(1).toLowerCase();
-    // Two-fee model: Stripe charges the Online Processing Fee (+ rush) only.
-    // Government / agency / shipping fees are charged separately later via the
-    // encrypted stored card — they never appear in this session.
-    const session = await stripe.checkout.sessions.create(
+    if (state !== "RETRY") return processingPayment();
+    snapshot = await Order.findById(id).lean();
+    const reserved = await Order.findOneAndUpdate(
+      reservationFilter(snapshot),
       {
-        mode: "payment",
-        ui_mode: "elements",
-        customer_email: order.applicant.email,
-        return_url: `${env.FRONTEND_URL}/order/confirmation/${order._id.toHexString()}?session_id={CHECKOUT_SESSION_ID}`,
-        line_items: [
-          {
-            quantity: order.copies,
-            price_data: {
-              currency: "usd",
-              unit_amount: 14900,
-              product_data: {
-                name: `${order.stateName} ${certLabel} Certificate - Online Processing Fee`,
-              },
-            },
-          },
-          ...(order.rush
-            ? [
-                {
-                  quantity: 1,
-                  price_data: {
-                    currency: "usd",
-                    unit_amount: 1200,
-                    product_data: { name: "Rush Processing" },
-                  },
-                },
-              ]
-            : []),
-        ],
-        metadata: {
-          orderId: order._id.toHexString(),
-          orderNumber: order.publicNumber,
-          certificate: order.certificate,
-          state: order.stateName,
-          copies: String(order.copies),
-          rush: order.rush ? "true" : "false",
-        },
-        payment_intent_data: {
-          description: `USVC ${order.publicNumber} - Complete Order Payment`,
-          metadata: { orderId: order._id.toHexString(), orderNumber: order.publicNumber },
-        },
+        $set: { paymentAttempt: newPaymentAttempt("CHECKOUT"), paymentStatus: "PENDING" },
+        $unset: { stripePaymentIntentId: "", stripeCheckoutSessionId: "" },
       },
-      { idempotencyKey: `usvc_checkout_${order._id.toHexString()}` },
-    );
-
-    if (session.amount_total !== amountCents)
+      { returnDocument: "after" },
+    ).lean();
+    if (!reserved) return processingPayment();
+    const session = await ensureCheckoutSession(stripe, reserved);
+    if (
+      !matchesPayment({ ...reserved, stripeCheckoutSessionId: session.id }, checkoutNotice(session))
+    )
       throw new ApiError(502, "Payment amount could not be verified.");
-    order.stripeCheckoutSessionId = session.id;
-    await order.save();
-    res.json({ alreadyPaid: false as const, clientSecret: session.client_secret, amountCents });
+    res.json({
+      alreadyPaid: false,
+      clientSecret: session.client_secret,
+      amountCents: reserved.amountCents,
+    });
   } catch (e) {
     next(e);
   }
@@ -518,40 +505,15 @@ ordersRouter.post("/checkout-session/confirm", async (req, res, next) => {
     const order =
       orderId && /^[0-9a-fA-F]{24}$/.test(orderId) ? await Order.findById(orderId) : null;
     if (!order) throw new ApiError(404, "That payment could not be matched to an order.");
-    const intent = typeof session.payment_intent === "string" ? null : session.payment_intent;
-    const paymentIntentId =
-      typeof session.payment_intent === "string" ? session.payment_intent : (intent?.id ?? null);
-    if (session.payment_status === "paid") {
-      order.paymentStatus = "PAID";
-      order.status = "PAID";
-      order.amountCents = session.amount_total ?? order.amountCents;
-      if (paymentIntentId) order.stripePaymentIntentId = paymentIntentId;
-      order.stripeCheckoutSessionId = session.id;
-      order.auditEvents.push({
-        action: "payment_confirmed",
-        metadata: { sessionId: session.id },
-        createdAt: new Date(),
-      });
-      await order.save();
-      return res.json({
-        paid: true as const,
-        publicNumber: order.publicNumber,
-        amountCents: order.amountCents,
-        paymentIntentId,
-        sessionId: session.id,
-      });
-    }
-    order.auditEvents.push({
-      action: "payment_failed",
-      metadata: { sessionId: session.id, status: session.status },
-      createdAt: new Date(),
-    });
-    await order.save();
+    const notice = checkoutNotice(session);
+    if (!matchesPayment(order, notice))
+      throw new ApiError(409, "That payment could not be verified for this order.");
+    const paid = session.payment_status === "paid" && (await recordPayment(notice));
     res.json({
-      paid: false as const,
+      paid,
       publicNumber: order.publicNumber,
       amountCents: order.amountCents,
-      paymentIntentId,
+      paymentIntentId: notice.intentId ?? null,
       sessionId: session.id,
     });
   } catch (e) {

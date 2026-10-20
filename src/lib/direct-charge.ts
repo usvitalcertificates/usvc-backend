@@ -25,11 +25,11 @@ export interface ServiceChargeParams {
   card: ServiceChargeCard;
   /** Browser-minted single-use token (tok_...). Preferred when present. */
   cardToken?: string;
-  /** Caller-computed idempotency key, scoped per charge attempt
-   *  (`usvc_order_charge_<orderId>_<attempt>`). A fixed per-order key breaks
-   *  retries: Stripe rejects a reused key with different params (a fresh
-   *  single-use token each attempt), so the key must advance per attempt. */
+  /** Stable key for this durably reserved attempt. Only a confirmed
+   *  cancellation permits a fresh attempt (and fresh token). */
   idempotencyKey: string;
+  /** Saved on the order before this function may confirm a charge. */
+  paymentIntentId: string;
 }
 
 export type ServiceChargeResult =
@@ -119,20 +119,8 @@ export async function chargeServiceFee(
   }
   try {
     const { idempotencyKey } = params;
-    const common = {
-      amount: params.amountCents,
-      currency: "usd",
-      confirm: true,
-      // Card-only: never offer redirect-based methods, so no return_url needed.
-      automatic_payment_methods: { enabled: true, allow_redirects: "never" },
-      description: `USVC ${params.orderNumber} - Online Processing Fee`,
-      receipt_email: params.email || undefined,
-      metadata: { orderId: params.orderId, orderNumber: params.orderNumber },
-    } as const;
-    // Exactly one charge attempt per call site invocation. Retries arrive as
-    // separate calls with a fresh idempotency key (see route counter), so a
-    // lost response after success can never double-charge, and a fresh token
-    // never collides with a previous attempt's key.
+    // Confirmation always targets the already-persisted intent. A timeout
+    // cannot cause a later request to create a second charge.
     let intent;
     let chargePath: "token" | "raw";
     if (params.cardToken) {
@@ -140,30 +128,33 @@ export async function chargeServiceFee(
       // enablement needed, test or live. stripe-node v22 types omit
       // card[token] here though the REST API accepts it (payment_method_data
       // with a card token), hence the narrow cast.
-      intent = await stripe.paymentIntents.create(
+      intent = await stripe.paymentIntents.confirm(
+        params.paymentIntentId,
         {
-          ...common,
           payment_method_data: {
             type: "card",
             card: { token: params.cardToken },
-          } as unknown as Stripe.PaymentIntentCreateParams.PaymentMethodData,
+          } as unknown as Stripe.PaymentIntentConfirmParams.PaymentMethodData,
         },
         { idempotencyKey },
       );
       chargePath = "token";
     } else {
-      const paymentMethod = await stripe.paymentMethods.create({
-        type: "card",
-        card: {
-          number: digits,
-          exp_month: exp.expMonth,
-          exp_year: exp.expYear,
-          cvc,
-        },
-      });
-      intent = await stripe.paymentIntents.create(
+      const paymentMethod = await stripe.paymentMethods.create(
         {
-          ...common,
+          type: "card",
+          card: {
+            number: digits,
+            exp_month: exp.expMonth,
+            exp_year: exp.expYear,
+            cvc,
+          },
+        },
+        { idempotencyKey: `${idempotencyKey}_method` },
+      );
+      intent = await stripe.paymentIntents.confirm(
+        params.paymentIntentId,
+        {
           payment_method: paymentMethod.id,
         },
         { idempotencyKey },
@@ -200,8 +191,8 @@ export async function chargeServiceFee(
       };
     }
     if (isIdempotencyError(e)) {
-      // Stale/duplicate key reuse across differing params. Not the customer's
-      // fault — a plain retry with a fresh key resolves it.
+      // Do not release the payment fence on idempotency errors. The caller
+      // reconciles the persisted intent before considering another attempt.
       logProcessorDetail({
         orderId: params.orderId,
         code: "idempotency_key_in_use",
