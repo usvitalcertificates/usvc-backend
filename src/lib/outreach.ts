@@ -1,0 +1,7 @@
+export const OUTREACH_OUTCOMES = [
+  "NOT_CONTACTED",
+  "ATTEMPTED_CONTACT",
+  "CONTACTED",
+  "FOLLOW_UP_LATER",
+  "NOT_INTERESTED",
+] as const;

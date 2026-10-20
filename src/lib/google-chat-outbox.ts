@@ -1,3 +1,4 @@
+import type { ClientSession } from "mongoose";
 import { env } from "../config/env.js";
 import { GoogleChatDelivery } from "../models/google-chat-delivery.js";
 import { Order } from "../models/order.js";
@@ -34,16 +35,19 @@ async function leaseNext(now: Date) {
 
 /** Idempotent enqueue: one row per order, created on first paid confirmation
  *  from either the direct-charge path or the Stripe webhook. */
-export async function queuePaidOrderChatNotice(order: {
-  _id: unknown;
-  publicNumber: string;
-  applicant?: { firstName?: string; lastName?: string };
-  stateName?: string;
-  certificate?: string;
-  deviceLocation?: { city?: string; region?: string };
-  addresses?: { shipping?: { city?: string; state?: string } };
-  rush?: boolean;
-}): Promise<void> {
+export async function queuePaidOrderChatNotice(
+  order: {
+    _id: unknown;
+    publicNumber: string;
+    applicant?: { firstName?: string; lastName?: string };
+    stateName?: string;
+    certificate?: string;
+    deviceLocation?: { city?: string; region?: string };
+    addresses?: { shipping?: { city?: string; state?: string } };
+    rush?: boolean;
+  },
+  session?: ClientSession,
+): Promise<void> {
   const firstName = order.applicant?.firstName?.trim() ?? "";
   const lastName = order.applicant?.lastName?.trim() ?? "";
   await GoogleChatDelivery.updateOne(
@@ -65,7 +69,7 @@ export async function queuePaidOrderChatNotice(order: {
         nextAttemptAt: new Date(),
       },
     },
-    { upsert: true },
+    { upsert: true, session },
   );
 }
 
