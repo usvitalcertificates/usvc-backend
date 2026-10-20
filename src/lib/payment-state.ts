@@ -2,6 +2,7 @@ import mongoose, { type ClientSession } from "mongoose";
 import type Stripe from "stripe";
 import { env } from "../config/env.js";
 import { Order } from "../models/order.js";
+import { schedulePaymentRecovery } from "./payment-recovery.js";
 import { queuePaymentDeliveries } from "./payment-deliveries.js";
 
 export interface PaymentOrder {
@@ -24,6 +25,7 @@ export interface PaymentNotice {
   livemode: boolean;
   outcome: "PAID" | "FAILED";
   occurredAt: Date;
+  confirmedFailure?: boolean;
 }
 
 /** Metadata alone never establishes ownership: require the persisted Stripe
@@ -139,7 +141,13 @@ export async function recordPayment(
   if (notice.outcome === "FAILED") {
     // A failed event does not release the fence. An intent with a declined
     // card can still be confirmed; cancellation must be verified separately.
-    await Order.updateOne(filter, { $set: { paymentStatus: "FAILED" } }, { session });
+    const updated = await Order.updateOne(
+      filter,
+      { $set: { paymentStatus: "FAILED" } },
+      { session },
+    );
+    if (updated.matchedCount && notice.confirmedFailure)
+      await schedulePaymentRecovery(notice.orderId, notice.attemptId, session);
     return false;
   }
   const updated = await Order.updateOne(filter, paidUpdate(notice, !!order.paymentAttempt), {

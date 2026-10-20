@@ -132,7 +132,10 @@ test(
             keys.set(opts.idempotencyKey!, id);
             sessions.set(id, {
               id,
-              amount_total: 14900,
+              amount_total: args.line_items!.reduce((sum, item) => {
+                assert.ok(Number.isInteger(item.price_data!.unit_amount));
+                return sum + item.quantity! * item.price_data!.unit_amount!;
+              }, 0),
               currency: "usd",
               metadata: args.metadata,
               livemode: false,
@@ -335,6 +338,33 @@ test(
         assert.equal(await Order.countDocuments({ submissionKey: input.submissionKey }), 1);
       });
 
+      await t.test(
+        "discounted copies charge server totals and Checkout uses integer line items",
+        async () => {
+          const direct = await post("/orders", {
+            ...payload(),
+            copies: 9,
+            rush: true,
+            totalCents: 72100,
+          });
+          assert.equal(direct.status, 201, JSON.stringify(direct.body));
+          const paid = await Order.findById(direct.body.id).lean();
+          assert.equal(paid.amountCents, 72100);
+          assert.equal(intents.get(paid.stripePaymentIntentId)!.amount, 72100);
+          const legacy = await makeOrder({
+            copies: 9,
+            paymentAttempt: undefined,
+            amountCents: 134100,
+            pricing: { serviceCents: 134100, rushCents: 0, totalCents: 134100 },
+          });
+          await Order.updateOne({ _id: legacy._id }, { $unset: { applicationRevision: 1 } });
+          const checkout = await post(`/orders/${legacy._id}/checkout-session`, {});
+          assert.equal(checkout.status, 200, JSON.stringify(checkout.body));
+          assert.equal(checkout.body.amountCents, 70900);
+          const latest = await Order.findById(legacy._id).lean();
+          assert.equal(sessions.get(latest.stripeCheckoutSessionId)!.amount_total, 70900);
+        },
+      );
       await t.test("a lost confirmation response resolves the same successful charge", async () => {
         loseConfirmResponse = true;
         const before = confirms;
@@ -345,11 +375,18 @@ test(
 
       await t.test("a declined intent is cancelled before a fresh attempt can charge", async () => {
         const input = payload();
+        const emailEnabled = env.EMAIL_ENABLED;
+        env.EMAIL_ENABLED = true;
         confirmStatus = "requires_payment_method";
         const declined = await post("/orders", input);
         assert.equal(declined.status, 402, JSON.stringify(declined.body));
         const first = await Order.findOne({ submissionKey: input.submissionKey }).lean();
         assert.equal(first.paymentAttempt.state, "FAILED");
+        assert.equal(
+          (await EmailOutbox.findById(`payment_recovery_${first._id}`).lean())?.template,
+          "PAYMENT_RECOVERY",
+        );
+        env.EMAIL_ENABLED = emailEnabled;
         assert.equal(intents.get(first.stripePaymentIntentId)!.status, "canceled");
         confirmStatus = "succeeded";
         const result = await post("/orders", input);

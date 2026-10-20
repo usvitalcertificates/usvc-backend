@@ -1,3 +1,4 @@
+import { recoveryRouter } from "./routes/recovery.js";
 import cors from "cors";
 import express from "express";
 import helmet from "helmet";
@@ -31,5 +32,6 @@ app.use("/staff/unpaid-orders", unpaidOrdersRouter);
 app.use("/staff/payments", staffPaymentsRouter);
 app.use("/staff", staffRouter);
 app.use("/contact-messages", contactRouter);
+app.use("/recovery", recoveryRouter);
 app.use("/orders", ordersRouter);
 app.use(errors);

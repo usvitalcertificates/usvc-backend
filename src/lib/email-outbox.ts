@@ -1,3 +1,11 @@
+import mongoose from "mongoose";
+import {
+  preparePaymentRecovery,
+  recoveryEmailOutcome,
+  expireOrphanedPaymentRecoveries,
+} from "./payment-recovery.js";
+import { RecoveryGrant, RecoveryChallenge } from "../models/recovery.js";
+import { decryptSensitive } from "./crypto.js";
 import { Resend } from "resend";
 import { env } from "../config/env.js";
 import { ContactMessage } from "../models/contact-message.js";
@@ -40,18 +48,77 @@ async function leaseNextMessage(now: Date) {
       $inc: { attempts: 1 },
     },
     { returnDocument: "after", sort: { nextAttemptAt: 1 } },
-  ).select("+setupToken");
+  ).select("+setupToken +recoverySecret +recoveryContent");
 }
 
 export async function processNextEmail(): Promise<boolean> {
   if (!env.EMAIL_ENABLED) return false;
+  await expireOrphanedPaymentRecoveries();
+  await EmailOutbox.updateMany(
+    {
+      template: { $ne: "PAYMENT_RECOVERY" },
+      recoveryExpiresAt: { $lte: new Date() },
+      recoverySecret: { $exists: true },
+    },
+    {
+      $unset: { recoverySecret: 1, recoveryContent: 1 },
+      $set: { status: "FAILED", lastError: "Recovery email expired" },
+    },
+  );
   const message = await leaseNextMessage(new Date());
   if (!message) return false;
 
   try {
     let email: { subject: string; html: string; text: string };
     let replyTo: string;
-    if (message.template === "PAYMENT_CONFIRMATION") {
+    if (message.template === "PAYMENT_RECOVERY") {
+      const prepared = await preparePaymentRecovery(message);
+      if (!prepared) return true;
+      email = prepared;
+      replyTo = env.EMAIL_REPLY_TO!;
+    } else if (message.template === "RECOVERY_LINK" || message.template === "RECOVERY_CODE") {
+      const grant = await RecoveryGrant.exists({
+        _id: message.recoveryGrantId,
+        revokedAt: { $exists: false },
+        expiresAt: { $gt: new Date() },
+      });
+      const challenge =
+        message.template !== "RECOVERY_CODE" ||
+        (await RecoveryChallenge.exists({
+          _id: message.recoveryChallengeId,
+          usedAt: { $exists: false },
+          expiresAt: { $gt: new Date() },
+        }));
+      if (
+        !grant ||
+        !challenge ||
+        !message.recoveryExpiresAt ||
+        message.recoveryExpiresAt <= new Date() ||
+        !message.recoverySecret
+      ) {
+        await EmailOutbox.deleteOne({ _id: message._id });
+        return true;
+      }
+      const secret = decryptSensitive(message.recoverySecret);
+      const text =
+        message.template === "RECOVERY_LINK"
+          ? `Continue your saved application: ${env.FRONTEND_URL.replace(/\/$/, "")}/resume#${secret}\nThis link expires in 48 hours. You will verify your email before viewing any details. If you did not request this, ignore this email.`
+          : `Your application verification code is ${secret}. It expires in 10 minutes. Never share this code. If you did not request this, ignore this email.`;
+      email = {
+        subject:
+          message.template === "RECOVERY_LINK"
+            ? "Resume your saved USVC application"
+            : "Your USVC verification code",
+        text,
+        html: `<p>${text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/\n/g, "<br>")}</p>`,
+      };
+      if (message.template === "RECOVERY_LINK") {
+        const url = `${env.FRONTEND_URL.replace(/\/$/, "")}/resume#${secret}`;
+        const safeUrl = url.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+        email.html = `<p>Continue your saved application.</p><p><a href="${safeUrl}">Resume application</a></p><p>This link expires in 48 hours. Verify your email before viewing application details. If you did not request this, ignore this email.</p>`;
+      }
+      replyTo = env.EMAIL_REPLY_TO!;
+    } else if (message.template === "PAYMENT_CONFIRMATION") {
       const order = await Order.findById(message.orderId).lean();
       if (!order) throw new Error("Order for confirmation email no longer exists");
       email = renderPaymentConfirmationEmail(
@@ -125,34 +192,57 @@ export async function processNextEmail(): Promise<boolean> {
     if (result.error) throw new Error(result.error.message);
 
     const sentAt = new Date();
-    await EmailOutbox.updateOne(
-      { _id: message._id, status: "SENDING" },
-      {
-        $set: {
-          status: "SENT",
-          providerMessageId: result.data?.id,
-          sentAt,
+    await mongoose.connection.transaction(async (session) => {
+      const updated = await EmailOutbox.updateOne(
+        { _id: message._id, status: "SENDING", attempts: message.attempts },
+        {
+          $set: {
+            status: "SENT",
+            providerMessageId: result.data?.id,
+            sentAt,
+          },
+          // Single-use setup tokens must not linger once delivered.
+          $unset: {
+            leaseExpiresAt: 1,
+            lastError: 1,
+            setupToken: 1,
+            recoverySecret: 1,
+            recoveryContent: 1,
+          },
         },
-        // Single-use setup tokens must not linger once delivered.
-        $unset: { leaseExpiresAt: 1, lastError: 1, setupToken: 1 },
-      },
-    );
-    await recordEmailAudit(message, "sent", sentAt, { providerMessageId: result.data?.id });
+        { session },
+      );
+      if (updated.modifiedCount && message.template === "PAYMENT_RECOVERY")
+        await recoveryEmailOutcome(message.orderId, "SENT", session);
+    });
+    if (message.template !== "PAYMENT_RECOVERY")
+      await recordEmailAudit(message, "sent", sentAt, { providerMessageId: result.data?.id });
   } catch (error) {
     const failedPermanently = message.attempts >= MAX_ATTEMPTS;
     const now = new Date();
-    await EmailOutbox.updateOne(
-      { _id: message._id, status: "SENDING" },
-      {
-        $set: {
-          status: failedPermanently ? "FAILED" : "PENDING",
-          nextAttemptAt: new Date(now.getTime() + retryDelayMs(message.attempts)),
-          lastError: sanitizeEmailError(error),
+    await mongoose.connection.transaction(async (session) => {
+      const updated = await EmailOutbox.updateOne(
+        { _id: message._id, status: "SENDING", attempts: message.attempts },
+        {
+          $set: {
+            status: failedPermanently ? "FAILED" : "PENDING",
+            nextAttemptAt: new Date(now.getTime() + retryDelayMs(message.attempts)),
+            lastError:
+              message.template.startsWith("RECOVERY_") || message.template === "PAYMENT_RECOVERY"
+                ? "Recovery email delivery failed"
+                : sanitizeEmailError(error),
+          },
+          $unset: {
+            leaseExpiresAt: 1,
+            ...(failedPermanently ? { recoverySecret: 1, recoveryContent: 1 } : {}),
+          },
         },
-        $unset: { leaseExpiresAt: 1 },
-      },
-    );
-    if (failedPermanently)
+        { session },
+      );
+      if (updated.modifiedCount && failedPermanently && message.template === "PAYMENT_RECOVERY")
+        await recoveryEmailOutcome(message.orderId, "FAILED", session);
+    });
+    if (failedPermanently && message.template !== "PAYMENT_RECOVERY")
       await recordEmailAudit(message, "failed", now, { attempts: message.attempts });
   }
   return true;
@@ -169,6 +259,11 @@ async function recordEmailAudit(
   createdAt: Date,
   metadata: Record<string, unknown>,
 ): Promise<void> {
+  if (message.template === "PAYMENT_RECOVERY") {
+    await recoveryEmailOutcome(message.orderId, outcome === "sent" ? "SENT" : "FAILED");
+    return;
+  }
+  if (message.template.startsWith("RECOVERY_")) return;
   if (message.orderId) {
     const submitted = message.template === "SUBMISSION_NOTIFICATION";
     await Order.updateOne(

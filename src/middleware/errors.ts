@@ -9,7 +9,12 @@ export class ApiError extends Error {
   }
 }
 export const errors: ErrorRequestHandler = (error, req, res, next) => {
-  console.error({ requestId: req.id, error });
+  // Never log validation input, recovery credentials or processor payloads.
+  console.error({
+    requestId: req.id,
+    status: error instanceof ApiError ? error.status : error instanceof ZodError ? 400 : 500,
+    type: error instanceof Error ? error.name : "UnknownError",
+  });
   if (error instanceof ZodError) return res.status(400).json({ message: "Invalid request" });
   if (error instanceof ApiError)
     return res.status(error.status).json({ message: error.message, requestId: req.id });

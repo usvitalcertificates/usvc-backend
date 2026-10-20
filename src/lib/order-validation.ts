@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { z } from "zod";
-import { priceOrder } from "./orders.js";
+import { priceOrder, processingPricing, MAX_COPIES } from "./orders.js";
 
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const ZIP_PATTERN = /^(\d{5}(-\d{4})?|[A-Za-z0-9][A-Za-z0-9 -]{1,18})$/;
@@ -135,7 +135,7 @@ export const createOrderSchema = z.object({
     billing: addressSchema,
   }),
   destinationType: z.enum(["domestic", "international"]).default("domestic"),
-  copies: z.number().int().min(1).max(20),
+  copies: z.number().int().min(1).max(MAX_COPIES),
   rush: z.boolean().default(false),
   deliveryMethod: z.string().max(80).default("regular"),
   consents: z.object({
@@ -302,7 +302,7 @@ export interface OrderValidationResult {
 
 export function validateOrderSubmission(
   input: CreateOrderInput,
-  opts?: { requireCard?: boolean },
+  opts?: { requireCard?: boolean; storedSsn?: boolean },
 ): OrderValidationResult {
   const errors: Record<string, string> = {};
   // Vermont + Wyoming are listed but not accepting orders.
@@ -359,7 +359,7 @@ export function validateOrderSubmission(
 
   // Every application requires a requestor SSN; birth, death, marriage, and
   // divorce applications additionally require the requestor date of birth.
-  if (!isPlausibleSsn((input.requestorSsn ?? "").trim())) {
+  if (!opts?.storedSsn && !isPlausibleSsn((input.requestorSsn ?? "").trim())) {
     errors["requestorSsn"] = "Social Security Number is required.";
   }
   // Every birth, death, marriage, and divorce application requires the
@@ -584,8 +584,5 @@ export function validateCorrection(input: CorrectionCandidate): OrderValidationR
 }
 
 export function pricingBreakdown(copies: number, rush: boolean, _international: boolean) {
-  const serviceCents = 14900 * copies;
-  const rushCents = rush ? 1200 : 0;
-  const totalCents = serviceCents + rushCents;
-  return { serviceCents, rushCents, totalCents };
+  return processingPricing(copies, rush);
 }

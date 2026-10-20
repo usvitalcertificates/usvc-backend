@@ -1,8 +1,18 @@
-/** Two-fee model: only the Online Processing Fee (+ optional rush) is charged
- *  now ($149/copy + $12 rush). Government / agency / shipping fees are
- *  charged separately later via the stored card — never in this total. */
+/** Only the processing fee and optional per-order rush fee are charged now.
+ * Agency and shipping fees remain separate. All amounts are integer cents. */
+export const MAX_COPIES = 9;
+export const FIRST_COPY_CENTS = 14900;
+export const ADDITIONAL_COPY_CENTS = 7000;
+export const COPY_DISCOUNT_CENTS = FIRST_COPY_CENTS - ADDITIONAL_COPY_CENTS;
+export function processingPricing(copies: number, rush: boolean) {
+  if (!Number.isInteger(copies) || copies < 1 || copies > MAX_COPIES)
+    throw new RangeError("Choose between 1 and 9 copies.");
+  const serviceCents = FIRST_COPY_CENTS + (copies - 1) * ADDITIONAL_COPY_CENTS;
+  const rushCents = rush ? 1200 : 0;
+  return { serviceCents, rushCents, totalCents: serviceCents + rushCents };
+}
 export const priceOrder = (copies: number, rush: boolean, _international: boolean) =>
-  copies * 14900 + (rush ? 1200 : 0);
+  processingPricing(copies, rush).totalCents;
 
 export const ORDER_TYPE_CODES = {
   BIRTH: "BT",
