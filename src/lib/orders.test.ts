@@ -1,11 +1,19 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ORDER_TYPE_CODES, encodeSequence, orderNumber, priceOrder } from "./orders.js";
-// Two-fee model: processing fee only ($149/copy + $12 rush). No bundle.
-test("prices a domestic rush order", () => assert.equal(priceOrder(2, true, false), 31000));
+// First copy $149, additional copies $70, rush $12 per order.
+test("prices a domestic rush order", () => assert.equal(priceOrder(2, true, false), 23100));
 test("prices an international order same as domestic", () =>
   assert.equal(priceOrder(1, false, true), 14900));
-test("prices twenty copies", () => assert.equal(priceOrder(20, false, false), 298000));
+test("prices all nine quantities and rejects invalid copy counts", () => {
+  const totals = [14900, 21900, 28900, 35900, 42900, 49900, 56900, 63900, 70900];
+  totals.forEach((total, index) => {
+    assert.equal(priceOrder(index + 1, false, false), total);
+    assert.equal(priceOrder(index + 1, true, true), total + 1200);
+  });
+  for (const copies of [0, -1, 1.5, 10, 20, NaN])
+    assert.throws(() => priceOrder(copies, false, false), RangeError);
+});
 
 test("uses the preferred certificate type codes in generated order numbers", () => {
   assert.deepEqual(ORDER_TYPE_CODES, {

@@ -65,3 +65,25 @@ test("renders rush processing, plural copies, and escapes dynamic HTML", () => {
     /proceed through Rush channel if all the information provided meets the government criteria\./,
   );
 });
+
+test("discounted payment receipts show savings while historical receipts preserve stored prices", () => {
+  const order = {
+    publicNumber: "COPY-TEST",
+    stateName: "Florida",
+    certificate: "BIRTH" as const,
+    copies: 3,
+    pricing: { serviceCents: 28900, rushCents: 1200, totalCents: 30100 },
+  };
+  const current = renderPaymentConfirmationEmail(order, "https://example.test");
+  for (const body of [current.html, current.text]) {
+    assert.match(body, /Additional copies: 2 × \$70.00/);
+    assert.match(body, /You saved: \$158.00/);
+    assert.match(body, /Amount Paid Today: \$301.00/);
+  }
+  const legacy = renderPaymentConfirmationEmail(
+    { ...order, pricing: { serviceCents: 44700, rushCents: 0, totalCents: 44700 } },
+    "https://example.test",
+  );
+  assert.doesNotMatch(legacy.html, /You saved/);
+  assert.match(legacy.text, /Amount Paid Today: \$447.00/);
+});

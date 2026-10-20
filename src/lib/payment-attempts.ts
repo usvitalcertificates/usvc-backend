@@ -103,12 +103,12 @@ export function checkoutParams(order: AttemptOrder): Stripe.Checkout.SessionCrea
     return_url: `${env.FRONTEND_URL}/order/confirmation/${String(order._id)}?session_id={CHECKOUT_SESSION_ID}`,
     line_items: [
       {
-        quantity: order.copies,
+        quantity: 1,
         price_data: {
           currency: order.currency,
-          unit_amount: order.pricing!.serviceCents / order.copies,
+          unit_amount: order.pricing!.serviceCents,
           product_data: {
-            name: `${order.stateName} ${certLabel} Certificate - Online Processing Fee`,
+            name: `${order.stateName} ${certLabel} Certificate - Online Processing Fee (${order.copies} ${order.copies === 1 ? "copy" : "copies"})`,
           },
         },
       },

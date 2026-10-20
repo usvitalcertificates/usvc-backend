@@ -1,3 +1,4 @@
+import { FIRST_COPY_CENTS, ADDITIONAL_COPY_CENTS, COPY_DISCOUNT_CENTS } from "./orders.js";
 export type PaymentConfirmationEmailOrder = {
   publicNumber: string;
   stateName: string;
@@ -30,6 +31,15 @@ export function renderPaymentConfirmationEmail(
   const subject = `Order confirmed - ${order.publicNumber}`;
   const certificate = `${order.stateName} ${certificateName(order.certificate)} Certificate`;
   const copies = `${order.copies} certified ${order.copies === 1 ? "copy" : "copies"}`;
+  const discounted =
+    order.copies > 1 &&
+    order.pricing.serviceCents === FIRST_COPY_CENTS + (order.copies - 1) * ADDITIONAL_COPY_CENTS;
+  const discountText = discounted
+    ? `First copy: ${money(FIRST_COPY_CENTS)}\nAdditional copies: ${order.copies - 1} × ${money(ADDITIONAL_COPY_CENTS)}\nYou saved: ${money((order.copies - 1) * COPY_DISCOUNT_CENTS)}\n`
+    : "";
+  const discountHtml = discounted
+    ? `<p style="margin:0 0 10px">First copy: ${money(FIRST_COPY_CENTS)}<br>Additional copies: ${order.copies - 1} × ${money(ADDITIONAL_COPY_CENTS)}<br><strong style="color:#176b3d">You saved: ${money((order.copies - 1) * COPY_DISCOUNT_CENTS)}</strong></p>`
+    : "";
   const trackingUrl = `${frontendUrl.replace(/\/$/, "")}/track-order`;
   const rushHtml = order.pricing.rushCents
     ? `<p style="margin:0 0 10px">Rush Processing: ${money(order.pricing.rushCents)}</p>`
@@ -64,6 +74,7 @@ export function renderPaymentConfirmationEmail(
 
       <h2 style="margin:26px 0 12px;color:#3c3b6e;font-size:19px">Payment</h2>
       <p style="margin:0 0 10px">Online Processing Fee: ${money(order.pricing.serviceCents)}</p>
+      ${discountHtml}
       ${rushHtml}
       <p style="margin:0"><strong>Amount Paid Today: ${money(order.pricing.totalCents)}</strong></p>
 
@@ -85,7 +96,7 @@ Number of Copies: ${copies}
 
 Payment
 Online Processing Fee: ${money(order.pricing.serviceCents)}
-${rushText}Amount Paid Today: ${money(order.pricing.totalCents)}
+${discountText}${rushText}Amount Paid Today: ${money(order.pricing.totalCents)}
 
 What Happens Next
 ${workflowText}

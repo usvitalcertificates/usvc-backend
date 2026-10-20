@@ -63,7 +63,21 @@ const OrderSchema = new Schema(
       billing: { type: AddressSchema, default: {} },
     },
     destinationType: { type: String, enum: ["domestic", "international"], default: "domestic" },
-    copies: { type: Number, required: true, min: 1, max: 20 },
+    copies: {
+      type: Number,
+      required: true,
+      min: 1,
+      // Unchanged historical quantities must not break fulfillment document saves.
+      // Every new or explicitly changed quantity is limited to 1–9.
+      validate: {
+        validator: function (this: mongoose.Document, copies: number) {
+          if (typeof this.isModified === "function" && !this.isNew && !this.isModified("copies"))
+            return true;
+          return Number.isInteger(copies) && copies <= 9;
+        },
+        message: "Choose between 1 and 9 copies.",
+      },
+    },
     rush: { type: Boolean, default: false },
     deliveryMethod: { type: String, default: "regular" },
     consents: {
