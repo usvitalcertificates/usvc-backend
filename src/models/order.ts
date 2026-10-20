@@ -27,6 +27,7 @@ const AddressSchema = new Schema(
 
 const OrderSchema = new Schema(
   {
+    applicationRevision: { type: Number, default: 0 },
     publicNumber: { type: String, required: true, unique: true, index: true },
     /** Client idempotency key per form fill: retries update this order instead
      *  of creating duplicates. Sparse so legacy keyless orders stay valid. */
@@ -222,6 +223,7 @@ const OrderSchema = new Schema(
 );
 
 OrderSchema.index({ email: 1, publicNumber: 1 });
+OrderSchema.index({ "applicant.email": 1, _id: -1 }, { collation: { locale: "en", strength: 2 } });
 OrderSchema.index({ status: 1, createdAt: -1 });
 OrderSchema.index({ paymentStatus: 1, createdAt: -1, _id: -1 });
 OrderSchema.index({ "outreach.outcome": 1, paymentStatus: 1, createdAt: -1 });

@@ -12,13 +12,12 @@ import {
   validateOrderSubmission,
 } from "../lib/order-validation.js";
 import { Order } from "../models/order.js";
-import { chargeServiceFee } from "../lib/direct-charge.js";
+import { completeDirectPayment } from "../lib/direct-payment.js";
 import {
   newPaymentAttempt,
   processingPayment,
   reservationFilter,
   reconcilePayment,
-  ensureDirectIntent,
   ensureCheckoutSession,
   type AttemptOrder,
 } from "../lib/payment-attempts.js";
@@ -195,7 +194,7 @@ ordersRouter.post("/", orderCreationLimiter, async (req, res, next) => {
               "analytics.openAiObref": freshAnalytics.openAiObref,
             },
             $unset: { stripePaymentIntentId: "", stripeCheckoutSessionId: "" },
-            $inc: { chargeAttempts: 1 },
+            $inc: { chargeAttempts: 1, applicationRevision: 1 },
             $push: { auditEvents: { action: "order_retried", createdAt: new Date() } },
           },
           { returnDocument: "after" },
@@ -261,88 +260,7 @@ ordersRouter.post("/", orderCreationLimiter, async (req, res, next) => {
       }
     }
 
-    // Persist an unconfirmed intent before giving Stripe any card details.
-    // A process crash can then only leave this known intent to reconcile.
-    let intent;
-    try {
-      intent = await ensureDirectIntent(stripe, order);
-    } catch {
-      return processingPayment();
-    }
-    const claimed = await Order.findOneAndUpdate(
-      {
-        _id: order._id,
-        "paymentAttempt.id": paymentAttempt.id,
-        "paymentAttempt.state": "READY",
-        stripePaymentIntentId: intent.id,
-        paymentStatus: { $nin: ["PAID", "REFUNDED"] },
-      },
-      { $set: { "paymentAttempt.state": "CONFIRMING" } },
-      { returnDocument: "after" },
-    ).lean();
-    if (!claimed) return processingPayment();
-    let charge: Awaited<ReturnType<typeof chargeServiceFee>> | undefined;
-    try {
-      charge = await chargeServiceFee(stripe, {
-        orderId: String(order._id),
-        orderNumber: order.publicNumber,
-        email: order.applicant?.email ?? "",
-        amountCents: order.amountCents,
-        card,
-        cardToken: input.stripeCardToken,
-        paymentIntentId: intent.id,
-        idempotencyKey: `usvc_payment_${paymentAttempt.id}_confirm`,
-      });
-    } catch {
-      // Lost responses are uncertain, not proof of failure. Reconciliation
-      // checks the saved intent, and cancels it before permitting a new one.
-    }
-    let settled: "PAID" | "RETRY" | "PENDING";
-    try {
-      settled = await reconcilePayment(stripe, claimed, true);
-    } catch {
-      return processingPayment();
-    }
-    if (settled === "PAID") {
-      return res.status(201).json({
-        id: String(order._id),
-        publicNumber: order.publicNumber,
-        amountCents: order.amountCents,
-        openAiEventId: order.analytics?.openAiEventId ?? "",
-        paid: true as const,
-      });
-    }
-    if (settled !== "RETRY") return processingPayment();
-    const failure =
-      charge && !charge.ok
-        ? charge
-        : {
-            httpStatus: 502,
-            code: "processor_error",
-            message: "Payment could not be processed right now. Please try again in a moment.",
-          };
-    await Order.updateOne(
-      {
-        _id: order._id,
-        "paymentAttempt.id": paymentAttempt.id,
-        paymentStatus: "FAILED",
-      },
-      {
-        $push: {
-          auditEvents: {
-            action: "payment_failed_direct",
-            metadata: { code: failure.code },
-            createdAt: new Date(),
-          },
-        },
-      },
-    );
-    return res.status(failure.httpStatus).json({
-      message: failure.message,
-      ...(failure.httpStatus === 402 ? { errors: { "paymentCard.number": failure.message } } : {}),
-      paymentFailureCode: failure.code,
-      paid: false as const,
-    });
+    return completeDirectPayment(order, card, input.stripeCardToken, res);
   } catch (e) {
     next(e);
   }
@@ -394,6 +312,29 @@ ordersRouter.get("/geo/:stateCode", async (req, res, next) => {
 /** Publishable key only — safe for the browser. */
 ordersRouter.get("/checkout-config", async (_req, res) => {
   res.json({ publishableKey: env.STRIPE_PUBLISHABLE_KEY });
+});
+
+/** Possession of the original high-entropy submission key scopes immediate retry checks. */
+ordersRouter.post("/payment-status", verifyLimiter, async (req, res, next) => {
+  try {
+    const { submissionKey } = z
+      .object({ submissionKey: z.string().regex(/^[A-Za-z0-9_-]{16,100}$/) })
+      .strict()
+      .parse(req.body);
+    const order = await Order.findOne({ submissionKey }).lean();
+    res.set("Cache-Control", "no-store");
+    if (!order) return res.json({ paid: false, processing: false, retryAllowed: true });
+    const state = await reconcilePayment(stripe, order);
+    res.json({
+      paid: state === "PAID",
+      processing: state === "PENDING",
+      retryAllowed: state === "RETRY",
+      publicNumber: order.publicNumber,
+      ...(state === "PAID" ? { id: String(order._id) } : {}),
+    });
+  } catch (e) {
+    next(e);
+  }
 });
 
 /** Public order summary for the checkout page. Strict whitelist — never SSN/card. */

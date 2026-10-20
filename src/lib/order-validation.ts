@@ -302,7 +302,7 @@ export interface OrderValidationResult {
 
 export function validateOrderSubmission(
   input: CreateOrderInput,
-  opts?: { requireCard?: boolean },
+  opts?: { requireCard?: boolean; storedSsn?: boolean },
 ): OrderValidationResult {
   const errors: Record<string, string> = {};
   // Vermont + Wyoming are listed but not accepting orders.
@@ -359,7 +359,7 @@ export function validateOrderSubmission(
 
   // Every application requires a requestor SSN; birth, death, marriage, and
   // divorce applications additionally require the requestor date of birth.
-  if (!isPlausibleSsn((input.requestorSsn ?? "").trim())) {
+  if (!opts?.storedSsn && !isPlausibleSsn((input.requestorSsn ?? "").trim())) {
     errors["requestorSsn"] = "Social Security Number is required.";
   }
   // Every birth, death, marriage, and divorce application requires the
