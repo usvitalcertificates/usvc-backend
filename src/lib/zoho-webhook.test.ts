@@ -19,6 +19,40 @@ test("Zoho verifies the decoded form payload exactly, including plus signs and U
     JSON.parse(payload),
   );
 });
+test("Zoho verifies the raw JSON body of its verification request", () => {
+  const json = JSON.stringify({
+    event_name: ["email_open"],
+    event_message: [
+      {
+        email_info: {
+          client_reference: "customer-unique-reference-to-identify-the-mail",
+          email_reference: "2518b.35307e20e5c556.m1.dd756374@zylker.com",
+          is_smtp_trigger: false,
+          subject: "webhook test email",
+        },
+      },
+    ],
+    mailagent_key: "sample-agent",
+    webhook_request_id: "sample-event",
+  });
+  assert.deepEqual(
+    verifyZohoWebhook(
+      Buffer.from(json),
+      "application/json; charset=UTF-8",
+      signature(Date.now(), json),
+      secret,
+    ),
+    JSON.parse(json),
+  );
+  assert.throws(() =>
+    verifyZohoWebhook(
+      Buffer.from(json),
+      "application/json",
+      signature(Date.now(), json + " "),
+      secret,
+    ),
+  );
+});
 test("Zoho rejects tampered, unsigned, stale, future, malformed and downgraded webhooks", () => {
   for (const header of [
     "",
@@ -32,7 +66,10 @@ test("Zoho rejects tampered, unsigned, stale, future, malformed and downgraded w
     assert.throws(() =>
       verifyZohoWebhook(body, "application/x-www-form-urlencoded", header, secret),
     );
-  assert.throws(() => verifyZohoWebhook(body, "application/json", signature(), secret));
+  assert.throws(() => verifyZohoWebhook(body, "text/plain", signature(), secret));
+  assert.throws(() =>
+    verifyZohoWebhook(Buffer.from("  "), "application/json", signature(), secret),
+  );
   assert.throws(() =>
     verifyZohoWebhook(
       Buffer.from(body.toString() + "&other=1"),

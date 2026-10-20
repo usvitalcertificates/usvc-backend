@@ -51,6 +51,16 @@ test("signed Zoho verification samples and unrelated references are acknowledged
       });
       assert.equal(response.status, 200, `sample reference: ${reference}`);
       assert.deepEqual(await response.json(), { received: true });
+      const jsonResponse = await fetch(`http://127.0.0.1:${port}/webhooks/zoho`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json; charset=UTF-8",
+          "producer-signature": `ts=${Date.now()};s=${encodeURIComponent(createHmac("sha256", env.ZOHO_WEBHOOK_SECRET).update(payload).digest("base64"))};s-algorithm=HmacSHA256`,
+        },
+        body: payload,
+      });
+      assert.equal(jsonResponse.status, 200, `JSON sample reference: ${reference}`);
+      assert.deepEqual(await jsonResponse.json(), { received: true });
     }
     assert.equal(writes.mock.callCount(), 0);
     assert.equal(reads.mock.callCount(), 0);
