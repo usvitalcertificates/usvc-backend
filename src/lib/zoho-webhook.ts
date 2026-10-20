@@ -4,7 +4,10 @@ import { env } from "../config/env.js";
 import { EmailDispatch } from "../models/email-dispatch.js";
 import { finishAcceptedEmail } from "./email-outbox.js";
 
-/** Zoho signs the decoded value of its one form parameter, not the encoded body. */
+/**
+ * Zoho signs either the decoded value of its one form parameter (documented
+ * delivery format) or the raw JSON body (its current verification request).
+ */
 export function verifyZohoWebhook(
   raw: Buffer,
   contentType: string,
@@ -12,8 +15,10 @@ export function verifyZohoWebhook(
   secret: string,
   now = Date.now(),
 ): unknown {
-  if (!contentType.toLowerCase().startsWith("application/x-www-form-urlencoded"))
-    throw Error("Invalid webhook");
+  const type = contentType.toLowerCase();
+  const isForm = type.startsWith("application/x-www-form-urlencoded");
+  const isJson = type.startsWith("application/json");
+  if (!isForm && !isJson) throw Error("Invalid webhook");
   const parts = header.split(";").map((part) => {
     const at = part.indexOf("=");
     return [part.slice(0, at).trim(), part.slice(at + 1)] as const;
@@ -27,9 +32,15 @@ export function verifyZohoWebhook(
     Math.abs(now - Number(values.ts)) > 5 * 60_000
   )
     throw Error("Invalid webhook");
-  const form = [...new URLSearchParams(raw.toString("utf8")).entries()];
-  if (form.length !== 1) throw Error("Invalid webhook");
-  const payload = form[0][1];
+  let payload: string;
+  if (isJson) {
+    payload = raw.toString("utf8");
+    if (!payload.trim()) throw Error("Invalid webhook");
+  } else {
+    const form = [...new URLSearchParams(raw.toString("utf8")).entries()];
+    if (form.length !== 1) throw Error("Invalid webhook");
+    payload = form[0][1];
+  }
   const signature = decodeURIComponent(values.s);
   if (!/^[A-Za-z0-9+/]{43}=$/.test(signature)) throw Error("Invalid webhook");
   const actual = Buffer.from(signature, "base64");
