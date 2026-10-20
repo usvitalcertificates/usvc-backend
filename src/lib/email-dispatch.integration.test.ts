@@ -1,3 +1,6 @@
+import { applyZohoWebhook } from "./zoho-webhook.js";
+import { app } from "../app.js";
+import { createHmac } from "node:crypto";
 import test from "node:test";
 import assert from "node:assert/strict";
 import mongoose from "mongoose";
@@ -465,6 +468,165 @@ test(
           assert.equal(sends, 0);
           assert.equal(lookups, 0);
           env.EMAIL_ENABLED = true;
+        },
+      );
+      await clean();
+      await t.test(
+        "signed SMTP delivery callbacks resolve timeouts once and preserve terminal outcomes",
+        async () => {
+          env.ZOHO_EMAIL_AGENT_KEY = "synthetic-agent";
+          env.ZOHO_WEBHOOK_SECRET = "s".repeat(32);
+          const server = app.listen(0, "127.0.0.1");
+          await new Promise<void>((resolve) => server.once("listening", resolve));
+          const port = (server.address() as { port: number }).port;
+          try {
+            const message = await job();
+            result = { kind: "uncertain", code: "ZOHO_SMTP_REQUEST_UNCERTAIN" };
+            await processNextEmail();
+            const receipt = await EmailDispatch.findById(message._id).lean();
+            const event = {
+              mailagent_key: "synthetic-agent",
+              webhook_request_id: "event-1",
+              event_name: ["delivered"],
+              event_message: [
+                {
+                  email_info: {
+                    client_reference: receipt!.reference,
+                    email_reference: "smtp-provider-reference",
+                    is_smtp_trigger: true,
+                    subject: "private discarded content",
+                    to: "private@example.test",
+                  },
+                },
+              ],
+            };
+            const payload = JSON.stringify(event);
+            const body = new URLSearchParams({ payload }).toString();
+            const post = (signature: string) =>
+              fetch(`http://127.0.0.1:${port}/webhooks/zoho`, {
+                method: "POST",
+                headers: {
+                  "content-type": "application/x-www-form-urlencoded",
+                  "producer-signature": signature,
+                },
+                body,
+              });
+            assert.equal((await post("invalid")).status, 401);
+            assert.equal((await EmailDispatch.findById(message._id).lean())!.state, "UNCERTAIN");
+            const signature = `ts=${Date.now()};s=${encodeURIComponent(createHmac("sha256", env.ZOHO_WEBHOOK_SECRET!).update(payload).digest("base64"))};s-algorithm=HmacSHA256`;
+            const responses = await Promise.all([post(signature), post(signature)]);
+            assert.ok(responses.every((response) => response.status === 200));
+            assert.equal((await EmailOutbox.findById(message._id).lean())!.status, "SENT");
+            assert.equal(
+              (await EmailDispatch.findById(message._id).lean())!.deliveryStatus,
+              "DELIVERED",
+            );
+            await applyZohoWebhook({ ...event, event_name: ["softbounce"] });
+            assert.equal(
+              (await EmailDispatch.findById(message._id).lean())!.deliveryStatus,
+              "DELIVERED",
+            );
+            await applyZohoWebhook({ ...event, event_name: ["hardbounce"] });
+            await applyZohoWebhook(event);
+            const final = await EmailDispatch.findById(message._id).lean();
+            assert.equal(final!.deliveryStatus, "HARD_BOUNCED");
+            assert.doesNotMatch(JSON.stringify(final), /private|discarded/);
+            assert.equal(sends, 1);
+            assert.equal(lookups, 0);
+            assert.equal(await processNextEmail(), false);
+            const contact = await ContactMessage.findById(message.contactMessageId).lean();
+            assert.equal(
+              contact!.emailEvents.filter(
+                (entry: { action: string }) => entry.action === "contact_email_sent",
+              ).length,
+              1,
+            );
+          } finally {
+            await new Promise<void>((resolve, reject) =>
+              server.close((error) => (error ? reject(error) : resolve())),
+            );
+          }
+        },
+      );
+      await clean();
+      await t.test(
+        "late callbacks resolve expired-job receipts without a resend or exposing secrets",
+        async () => {
+          const message = await job();
+          result = { kind: "uncertain", code: "ZOHO_SMTP_REQUEST_UNCERTAIN" };
+          await processNextEmail();
+          const receipt = await EmailDispatch.findById(message._id).lean();
+          await EmailDispatch.updateOne({ _id: message._id }, { $set: { state: "REVIEW" } });
+          await EmailOutbox.deleteOne({ _id: message._id });
+          const payload = {
+            mailagent_key: env.ZOHO_EMAIL_AGENT_KEY,
+            webhook_request_id: "late-event",
+            event_name: ["delivered"],
+            event_message: [
+              {
+                email_info: {
+                  client_reference: receipt!.reference,
+                  email_reference: "late-provider-id",
+                  is_smtp_trigger: true,
+                },
+              },
+            ],
+          };
+          await applyZohoWebhook(payload);
+          await applyZohoWebhook(payload);
+          assert.equal((await EmailDispatch.findById(message._id).lean())!.state, "ACCEPTED");
+          assert.equal(await EmailOutbox.countDocuments(), 0);
+          assert.equal(
+            (await ContactMessage.findById(message.contactMessageId).lean())!.emailEvents.length,
+            1,
+          );
+          assert.equal(sends, 1);
+        },
+      );
+      await clean();
+      await t.test(
+        "wrong Agent, unknown references and non-SMTP events cannot finalize jobs",
+        async () => {
+          const message = await job();
+          result = { kind: "uncertain", code: "ZOHO_SMTP_REQUEST_UNCERTAIN" };
+          await processNextEmail();
+          const receipt = await EmailDispatch.findById(message._id).lean();
+          for (const [agent, reference, smtp] of [
+            ["wrong", receipt!.reference, true],
+            [env.ZOHO_EMAIL_AGENT_KEY, "a".repeat(64), true],
+            [env.ZOHO_EMAIL_AGENT_KEY, receipt!.reference, false],
+          ] as const)
+            await applyZohoWebhook({
+              mailagent_key: agent,
+              webhook_request_id: "test",
+              event_name: ["delivered"],
+              event_message: [
+                {
+                  email_info: {
+                    client_reference: reference,
+                    email_reference: "ref",
+                    is_smtp_trigger: smtp,
+                  },
+                },
+              ],
+            });
+          assert.equal((await EmailDispatch.findById(message._id).lean())!.state, "UNCERTAIN");
+          await applyZohoWebhook({
+            mailagent_key: env.ZOHO_EMAIL_AGENT_KEY,
+            webhook_request_id: "unknown-event",
+            event_name: ["__proto__"],
+            event_message: [
+              {
+                email_info: {
+                  client_reference: receipt!.reference,
+                  email_reference: "ref",
+                  is_smtp_trigger: true,
+                },
+              },
+            ],
+          });
+          assert.equal((await EmailDispatch.findById(message._id).lean())!.state, "UNCERTAIN");
+          assert.equal(sends, 1);
         },
       );
     } finally {

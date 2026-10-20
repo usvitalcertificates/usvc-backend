@@ -33,11 +33,14 @@ export const envSchema = z
       .enum(["true", "false"])
       .default("false")
       .transform((value) => value === "true"),
-    ZOHO_EMAIL_API_KEY: z
-      .string()
-      .min(1)
-      .regex(/^[^\s]+$/)
-      .optional(),
+    SMTP_HOST: z.literal("smtp.zeptomail.in").default("smtp.zeptomail.in"),
+    SMTP_PORT: z.coerce
+      .number()
+      .pipe(z.union([z.literal(465), z.literal(587)]))
+      .default(465),
+    SMTP_USER: z.literal("emailapikey").default("emailapikey"),
+    SMTP_PASSWORD: z.string().min(1).optional(),
+    ZOHO_WEBHOOK_SECRET: z.string().min(32).optional(),
     ZOHO_EMAIL_AGENT_KEY: z.string().min(1).optional(),
     ZOHO_OAUTH_CLIENT_ID: z.string().min(1).optional(),
     ZOHO_OAUTH_CLIENT_SECRET: z.string().min(1).optional(),
@@ -84,7 +87,8 @@ export const envSchema = z
   .superRefine((value, context) => {
     if (value.EMAIL_ENABLED) {
       for (const key of [
-        "ZOHO_EMAIL_API_KEY",
+        "SMTP_PASSWORD",
+        "ZOHO_WEBHOOK_SECRET",
         "ZOHO_EMAIL_AGENT_KEY",
         "ZOHO_OAUTH_CLIENT_ID",
         "ZOHO_OAUTH_CLIENT_SECRET",

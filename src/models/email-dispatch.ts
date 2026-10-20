@@ -17,6 +17,12 @@ const schema = new Schema(
     nextReconcileAt: Date,
     reconcileLeaseUntil: Date,
     reconcileAttempts: { type: Number, default: 0 },
+    deliveryStatus: {
+      type: String,
+      enum: ["SOFT_BOUNCED", "DELIVERED", "HARD_BOUNCED", "COMPLAINED"],
+    },
+    deliveryRank: Number,
+    deliveryUpdatedAt: Date,
     providerMessageId: String,
     acceptedAt: Date,
     finalizedAt: Date,

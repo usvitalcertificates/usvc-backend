@@ -406,7 +406,7 @@ export async function processNextEmail(): Promise<boolean> {
   return true;
 }
 
-async function finishAcceptedEmail(dispatch: any): Promise<void> {
+export async function finishAcceptedEmail(dispatch: any): Promise<void> {
   if (!dispatch || dispatch.state !== "ACCEPTED") return;
   await mongoose.connection.transaction(async (session) => {
     const claimed = await EmailDispatch.updateOne(
