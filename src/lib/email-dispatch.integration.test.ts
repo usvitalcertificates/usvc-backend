@@ -476,6 +476,61 @@ test(
       );
       await clean();
       await t.test(
+        "unsigned POST verification succeeds but never processes callback contents",
+        async () => {
+          const message = await job();
+          const server = app.listen(0, "127.0.0.1");
+          await new Promise<void>((resolve) => server.once("listening", resolve));
+          const port = (server.address() as { port: number }).port;
+          try {
+            for (const [type, body] of [
+              ["application/x-www-form-urlencoded", ""],
+              ["application/json", "{}"],
+              [
+                "application/x-www-form-urlencoded",
+                new URLSearchParams({
+                  payload: JSON.stringify({
+                    event_name: ["delivered"],
+                    event_message: [
+                      {
+                        email_info: {
+                          client_reference: "a".repeat(64),
+                          email_reference: "forged",
+                          is_smtp_trigger: false,
+                        },
+                      },
+                    ],
+                    mailagent_key: "fake",
+                    webhook_request_id: "fake",
+                  }),
+                }).toString(),
+              ],
+            ]) {
+              const response = await fetch(`http://127.0.0.1:${port}/webhooks/zoho`, {
+                method: "POST",
+                headers: { "content-type": type },
+                body,
+              });
+              assert.equal(response.status, 200);
+              assert.deepEqual(await response.json(), { received: false });
+            }
+            assert.equal(await EmailDispatch.countDocuments(), 0);
+            assert.equal((await EmailOutbox.findById(message._id).lean())!.status, "PENDING");
+            assert.equal(
+              (await ContactMessage.findById(message.contactMessageId).lean())!.emailEvents.length,
+              0,
+            );
+            assert.equal(sends, 0);
+            assert.equal(lookups, 0);
+          } finally {
+            await new Promise<void>((resolve, reject) =>
+              server.close((error) => (error ? reject(error) : resolve())),
+            );
+          }
+        },
+      );
+      await clean();
+      await t.test(
         "signed API delivery callbacks resolve timeouts once and preserve terminal outcomes",
         async () => {
           env.ZOHO_EMAIL_AGENT_KEY = "synthetic-agent";
