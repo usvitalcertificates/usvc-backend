@@ -1,3 +1,4 @@
+import { customerEmailLayout, emailButton } from "./customer-email-layout.js";
 import { FIRST_COPY_CENTS, ADDITIONAL_COPY_CENTS, COPY_DISCOUNT_CENTS } from "./orders.js";
 export type PaymentConfirmationEmailOrder = {
   publicNumber: string;
@@ -27,6 +28,7 @@ function certificateName(value: PaymentConfirmationEmailOrder["certificate"]): s
 export function renderPaymentConfirmationEmail(
   order: PaymentConfirmationEmailOrder,
   frontendUrl: string,
+  year?: number,
 ): { subject: string; html: string; text: string } {
   const subject = `Order confirmed - ${order.publicNumber}`;
   const certificate = `${order.stateName} ${certificateName(order.certificate)} Certificate`;
@@ -61,16 +63,13 @@ export function renderPaymentConfirmationEmail(
     ? `Your application will be reviewed.\nIf additional information is required we'll contact you.\nYour request will proceed through Rush channel if all the information provided meets the government criteria.\nYou can use your order number to check your order status.`
     : `Your application will be reviewed.\nIf additional information is needed, we'll contact you.\nYour request will proceed through the applicable processing workflow.\nYou can use your order number to check your order status.`;
 
-  const html = `<!doctype html>
-<html lang="en">
-  <body style="margin:0;background:#ffffff;color:#000000;font-family:'Times New Roman',Times,serif;font-size:16px;line-height:1.5">
-    <div style="display:none;max-height:0;overflow:hidden">Your US Vital Certificates payment has been confirmed.</div>
-    <main style="max-width:620px;margin:0 auto;padding:40px 24px">
+  const html = customerEmailLayout(
+    `<div style="display:none;max-height:0;overflow:hidden">Your US Vital Certificates payment has been confirmed.</div>
       <h1 style="margin:0 0 14px;color:#3c3b6e;font-size:24px;line-height:1.25">Thank-you for your order</h1>
       <p style="margin:0 0 10px">Your request has been received successfully.</p>
-      <p style="margin:0"><strong>Order Number:</strong> ${escapeHtml(order.publicNumber)}</p>
+      <div style="padding:16px;background:#f0f3fa;border:1px solid #dfe5f0;border-radius:6px"><p style="margin:0"><strong>Order Number:</strong> ${escapeHtml(order.publicNumber)}</p>
       <p style="margin:0"><strong>Certificate:</strong> ${escapeHtml(certificate)}</p>
-      <p style="margin:0"><strong>Number of Copies:</strong> ${escapeHtml(copies)}</p>
+      <p style="margin:0"><strong>Number of Copies:</strong> ${escapeHtml(copies)}</p></div>
 
       <h2 style="margin:26px 0 12px;color:#3c3b6e;font-size:19px">Payment</h2>
       <p style="margin:0 0 10px">Online Processing Fee: ${money(order.pricing.serviceCents)}</p>
@@ -80,11 +79,12 @@ export function renderPaymentConfirmationEmail(
 
       <h2 style="margin:26px 0 12px;color:#3c3b6e;font-size:19px">What Happens Next</h2>
       ${workflowHtml}
-      <p style="margin:0 0 22px"><a href="${escapeHtml(trackingUrl)}" style="display:inline-block;border-radius:4px;background:#b22234;color:#ffffff;padding:11px 20px;font-weight:bold;text-decoration:none">Track My Order</a></p>
-      <p style="margin:0;color:#333333;font-size:13px">State and agency fees are handled separately from your online processing payment. USVC is an independent service and is not a government agency.</p>
-    </main>
-  </body>
-</html>`;
+      ${emailButton(trackingUrl, "Track My Order")}
+      <p style="margin:0;color:#333333;font-size:14px">State and agency fees are handled separately from your online processing payment. USVC is an independent service and is not a government agency.</p>
+    `,
+    frontendUrl,
+    year,
+  );
 
   const text = `Thank-you for your order
 

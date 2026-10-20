@@ -1,3 +1,5 @@
+import { Order } from "../models/order.js";
+import { recoveryUrl } from "./recovery-url.js";
 import { createHmac, randomBytes } from "node:crypto";
 import { env } from "../config/env.js";
 import { encryptSensitive } from "./crypto.js";
@@ -59,7 +61,13 @@ export async function newRecoveryGrant(
     ],
     { session },
   );
-  return { grant, token, expiresAt, url: `${env.FRONTEND_URL.replace(/\/$/, "")}/resume#${token}` };
+  const order = orderId
+    ? await Order.findById(orderId)
+        .select("stateSlug certificate")
+        .session(session ?? null)
+        .lean()
+    : null;
+  return { grant, token, expiresAt, url: recoveryUrl(env.FRONTEND_URL, token, order) };
 }
 export async function queueRecoveryEmail(
   recipient: string,

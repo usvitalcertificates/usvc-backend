@@ -227,7 +227,7 @@ test(
           assert.ok(first.recoverySecret);
           assert.doesNotMatch(first.recoverySecret, /resume#/);
           const token = decryptSensitive(first.recoverySecret);
-          assert.ok(sent[0].body.text.includes(`/resume#${token}`));
+          assert.ok(sent[0].body.text.includes(`/resume-florida-birth-certificate#${token}`));
           assert.equal(first.lastError, "Recovery email delivery failed");
           await EmailOutbox.updateOne(
             { _id: first._id },
