@@ -33,8 +33,27 @@ export const envSchema = z
       .enum(["true", "false"])
       .default("false")
       .transform((value) => value === "true"),
-    RESEND_API_KEY: z.string().startsWith("re_").optional(),
-    EMAIL_FROM: z.string().min(1).optional(),
+    ZOHO_EMAIL_API_KEY: z
+      .string()
+      .min(1)
+      .regex(/^[^\s]+$/)
+      .optional(),
+    ZOHO_WEBHOOK_SECRET: z.string().min(32).optional(),
+    ZOHO_EMAIL_AGENT_KEY: z.string().min(1).optional(),
+    ZOHO_OAUTH_CLIENT_ID: z.string().min(1).optional(),
+    ZOHO_OAUTH_CLIENT_SECRET: z.string().min(1).optional(),
+    ZOHO_OAUTH_REFRESH_TOKEN: z.string().min(1).optional(),
+    EMAIL_FROM: z
+      .string()
+      .min(1)
+      .refine((value) => {
+        const match = value.match(/^([^<>\r\n]+)\s*<([^<>\r\n]+)>$/);
+        return z
+          .string()
+          .email()
+          .safeParse(match ? match[2].trim() : value.trim()).success;
+      }, "EMAIL_FROM must be an email address or Name <email>")
+      .optional(),
     EMAIL_REPLY_TO: z.string().email().optional(),
     EMAIL_RECIPIENT_OVERRIDE: z.string().email().optional(),
     /** Origin of the staff portal for invitation links, e.g. https://flow.usvitalcertificates.org */
@@ -65,7 +84,12 @@ export const envSchema = z
   })
   .superRefine((value, context) => {
     if (value.EMAIL_ENABLED) {
-      for (const key of ["RESEND_API_KEY", "EMAIL_FROM", "EMAIL_REPLY_TO"] as const) {
+      for (const key of [
+        "ZOHO_EMAIL_API_KEY",
+        "ZOHO_WEBHOOK_SECRET",
+        "EMAIL_FROM",
+        "EMAIL_REPLY_TO",
+      ] as const) {
         if (!value[key])
           context.addIssue({
             code: "custom",

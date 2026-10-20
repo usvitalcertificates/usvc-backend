@@ -1,3 +1,4 @@
+import { zohoWebhookRouter } from "./routes/zoho-webhook.js";
 import { recoveryRouter } from "./routes/recovery.js";
 import cors from "cors";
 import express from "express";
@@ -24,6 +25,11 @@ app.use((req, res, next) => {
 app.use(helmet());
 app.use(cors({ origin: env.FRONTEND_URL, credentials: true }));
 app.get("/health", (req, res) => res.json({ status: "ok", service: "usvc-api" }));
+app.use(
+  "/webhooks/zoho",
+  express.raw({ type: "application/x-www-form-urlencoded", limit: "100kb" }),
+  zohoWebhookRouter,
+);
 app.use("/webhooks", express.raw({ type: "application/json" }), webhookRouter);
 app.use(express.json({ limit: "100kb" }));
 app.use("/auth", authRouter);

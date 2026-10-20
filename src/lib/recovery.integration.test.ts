@@ -21,7 +21,8 @@ import { newRecoveryGrant, RECOVERY_MESSAGE } from "./recovery.js";
 import { encryptSensitive, decryptSensitive } from "./crypto.js";
 import { newPaymentAttempt } from "./payment-attempts.js";
 import { processNextEmail } from "./email-outbox.js";
-import { Resend } from "resend";
+import { zohoEmail } from "./zoho-email.js";
+import { EmailDispatch } from "../models/email-dispatch.js";
 const uri = process.env.PAYMENT_TEST_MONGODB_URI;
 test(
   "secure application recovery with real Mongo and mocked Stripe/email",
@@ -36,7 +37,7 @@ test(
       FRONTEND_URL: "http://localhost:3141",
       EMAIL_FROM: "USVC <support@example.test>",
       EMAIL_REPLY_TO: "support@example.test",
-      RESEND_API_KEY: "re_local",
+      ZOHO_EMAIL_API_KEY: "re_local",
       NODE_ENV: "test",
       PAYMENT_ENVIRONMENT: "test",
       ANALYTICS_ENABLED: false,
@@ -216,16 +217,12 @@ test(
     });
     const sentEmails: Record<string, unknown>[] = [];
     let emailFails = false;
-    t.mock.method(
-      Object.getPrototypeOf(new Resend("re_local").emails),
-      "send",
-      async (args: Record<string, unknown>) => {
-        sentEmails.push(args);
-        return emailFails
-          ? { error: { message: "sensitive-provider-response" } }
-          : { data: { id: "synthetic-email" }, error: null };
-      },
-    );
+    t.mock.method(zohoEmail, "send", async (args: Record<string, unknown>) => {
+      sentEmails.push(args);
+      return emailFails
+        ? { kind: "rejected", retryable: true, code: "ZOHO_RATE_LIMIT" }
+        : { kind: "accepted", messageId: "synthetic-email" };
+    });
     try {
       await make({ publicNumber: "RECOVERY-SECOND" });
       const order = await make(),

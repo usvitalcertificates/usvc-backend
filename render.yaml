@@ -8,23 +8,25 @@ services:
     healthCheckPath: /health
     envVars:
       - key: NODE_VERSION
-        value: 24
+        value: "24"
       - key: EMAIL_ENABLED
-        value: false
+        value: "false"
       - key: EMAIL_FROM
         value: US Vital Certificates <noreply@usvitalcertificates.org>
       - key: EMAIL_REPLY_TO
         value: support@usvitalcertificates.org
-      - key: RESEND_API_KEY
+      - key: ZOHO_EMAIL_API_KEY
+        sync: false
+      - key: ZOHO_WEBHOOK_SECRET
         sync: false
       - key: ANALYTICS_ENABLED
-        value: false
+        value: "false"
       - key: GA_MEASUREMENT_ID
         sync: false
       - key: GA4_MEASUREMENT_PROTOCOL_API_SECRET
         sync: false
       - key: OPENAI_CONVERSIONS_ENABLED
-        value: false
+        value: "false"
       - key: OPENAI_ADS_PIXEL_ID
         sync: false
       - key: OPENAI_CONVERSIONS_API_KEY
