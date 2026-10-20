@@ -362,6 +362,12 @@ test(
           );
           assert.equal(failed.status, 402, JSON.stringify(failed.body));
           assert.equal(failed.body.publicNumber, order.publicNumber);
+          const automatic = await EmailOutbox.findById(`payment_recovery_${order._id}`).lean();
+          assert.equal(automatic?.template, "PAYMENT_RECOVERY");
+          assert.equal(
+            automatic.nextAttemptAt.getTime() - automatic.recoveryScheduledAt.getTime(),
+            120000,
+          );
           decline = false;
           let release!: () => void;
           gate = new Promise<void>((r) => {

@@ -14,7 +14,13 @@ const CREATE_REPLAY_WINDOW_MS = 23 * 60 * 60 * 1000;
 export type AttemptOrder = OrderDoc & { _id: { toString(): string; toHexString(): string } };
 
 export function newPaymentAttempt(kind: "DIRECT" | "CHECKOUT") {
-  return { id: randomUUID(), kind, state: "RESERVED", startedAt: new Date() };
+  return {
+    id: randomUUID(),
+    kind,
+    state: "RESERVED",
+    recoveryEmailEligible: true,
+    startedAt: new Date(),
+  };
 }
 
 export function processingPayment(): never {
@@ -221,6 +227,11 @@ export async function reconcilePayment(
     if (!matchesPayment(snapshot, intentNotice(intent))) return "PENDING";
     if (intent.status === "succeeded")
       return (await recordPayment(intentNotice(intent))) ? "PAID" : "PENDING";
+    if (
+      intent.last_payment_error &&
+      ["requires_payment_method", "canceled"].includes(intent.status)
+    )
+      await recordPayment({ ...intentNotice(intent), confirmedFailure: true });
     if (
       intent.status !== "canceled" &&
       canCancel &&

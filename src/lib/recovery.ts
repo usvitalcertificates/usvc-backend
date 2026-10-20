@@ -5,6 +5,7 @@ import { ApiError } from "../middleware/errors.js";
 import { RecoveryGrant, RecoveryLimit } from "../models/recovery.js";
 import { EmailOutbox } from "../models/email-outbox.js";
 import type { ClientSession } from "mongoose";
+export const RECOVERY_LINK_TTL_MS = 48 * 60 * 60_000;
 export const RECOVERY_MESSAGE =
   "If a saved application matches this email, we’ll send recovery instructions.";
 export const recoveryHash = (value: string) =>
@@ -40,12 +41,12 @@ export async function recoveryLimit(key: string, max: number, windowMs: number) 
 }
 export async function newRecoveryGrant(
   email: string,
-  source: "SELF" | "STAFF",
+  source: "SELF" | "STAFF" | "AUTOMATIC",
   orderId?: unknown,
   session?: ClientSession,
 ) {
   const token = recoveryToken(),
-    expiresAt = new Date(Date.now() + 7 * 86400000);
+    expiresAt = new Date(Date.now() + RECOVERY_LINK_TTL_MS);
   const [grant] = await RecoveryGrant.create(
     [
       {

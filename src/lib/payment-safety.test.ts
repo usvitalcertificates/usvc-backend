@@ -345,11 +345,18 @@ test(
 
       await t.test("a declined intent is cancelled before a fresh attempt can charge", async () => {
         const input = payload();
+        const emailEnabled = env.EMAIL_ENABLED;
+        env.EMAIL_ENABLED = true;
         confirmStatus = "requires_payment_method";
         const declined = await post("/orders", input);
         assert.equal(declined.status, 402, JSON.stringify(declined.body));
         const first = await Order.findOne({ submissionKey: input.submissionKey }).lean();
         assert.equal(first.paymentAttempt.state, "FAILED");
+        assert.equal(
+          (await EmailOutbox.findById(`payment_recovery_${first._id}`).lean())?.template,
+          "PAYMENT_RECOVERY",
+        );
+        env.EMAIL_ENABLED = emailEnabled;
         assert.equal(intents.get(first.stripePaymentIntentId)!.status, "canceled");
         confirmStatus = "succeeded";
         const result = await post("/orders", input);

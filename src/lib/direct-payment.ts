@@ -9,6 +9,7 @@ import {
   reconcilePayment,
   type AttemptOrder,
 } from "./payment-attempts.js";
+import { recordPayment, intentNotice } from "./payment-state.js";
 const stripe = new Stripe(env.STRIPE_SECRET_KEY);
 /** Shared by normal submission and verified recovery; caller holds the durable fence. */
 export async function completeDirectPayment(
@@ -53,6 +54,8 @@ export async function completeDirectPayment(
     // Lost responses are uncertain, not proof of failure. Reconciliation
     // checks the saved intent, and cancels it before permitting a new one.
   }
+  if (charge && !charge.ok && charge.httpStatus === 402 && charge.code !== "invalid_card")
+    await recordPayment({ ...intentNotice(intent), outcome: "FAILED", confirmedFailure: true });
   let settled: "PAID" | "RETRY" | "PENDING";
   try {
     settled = await reconcilePayment(stripe, claimed, true);

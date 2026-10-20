@@ -140,6 +140,16 @@ const OrderSchema = new Schema(
     },
     /** Durable fence shared by direct payments and legacy Checkout. Never
      *  release an uncertain attempt on a timer; verify cancellation at Stripe. */
+    paymentRecoveryEmail: {
+      type: new Schema(
+        {
+          scheduledAt: Date,
+          outcome: { type: String, enum: ["QUEUED", "SENT", "SKIPPED", "FAILED"] },
+        },
+        { _id: false },
+      ),
+      default: undefined,
+    },
     paymentAttempt: {
       type: new Schema(
         {
@@ -151,6 +161,7 @@ const OrderSchema = new Schema(
             required: true,
           },
           startedAt: { type: Date, required: true },
+          recoveryEmailEligible: { type: Boolean },
         },
         { _id: false },
       ),
@@ -233,4 +244,6 @@ OrderSchema.index({ createdAt: -1 });
 OrderSchema.index({ "auditEvents.actorId": 1, "auditEvents.createdAt": -1 });
 
 export type OrderDoc = InferSchemaType<typeof OrderSchema>;
+OrderSchema.index({ "paymentRecoveryEmail.outcome": 1, "paymentRecoveryEmail.scheduledAt": 1 });
+
 export const Order = models.Order ?? model("Order", OrderSchema, "orders");
