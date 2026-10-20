@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import nodemailer from "nodemailer";
-import { ZohoEmailClient, parseSender, smtpOptions } from "./zoho-email.js";
+import { ZohoEmailClient, parseSender } from "./zoho-email.js";
 import { env } from "../config/env.js";
 const email = {
   from: "USVC <noreply@example.test>",
@@ -11,92 +10,97 @@ const email = {
   html: "<p>Saved application</p>",
   text: "Saved application",
 };
-const response = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status });
-test("SMTP sends the existing content with a stable reference and no HTTP send", async (t) => {
-  let closed = 0;
-  t.mock.method(nodemailer, "createTransport", (options: unknown) => {
-    assert.deepEqual(options, smtpOptions());
-    return {
-      sendMail: async (message: Record<string, unknown>) => {
-        assert.equal(message.html, email.html);
-        assert.equal(message.text, email.text);
-        assert.deepEqual(message.headers, { "X-TM-CLIENT-REF": "opaque-reference" });
-        assert.equal(message.messageId, "<opaque-reference@example.test>");
-        assert.deepEqual(message.to, { address: email.to });
-        return {
-          accepted: [email.to],
-          rejected: [],
-          response: "250 Message accepted",
-          messageId: "smtp-id",
-        };
-      },
-      close: () => {
-        closed++;
-      },
-    } as unknown as ReturnType<typeof nodemailer.createTransport>;
+const accepted = {
+  data: [{ code: "EM_104", message: "OK" }],
+  request_id: "zoho-request",
+  message: "OK",
+};
+const failure = { data: { error_code: "TM_3004" }, message: "error" };
+const response = (body: unknown, status = 200, headers: Record<string, string> = {}) =>
+  new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json", ...headers },
   });
-  const fetch = t.mock.method(globalThis, "fetch", async () => {
-    throw Error("HTTP sending forbidden");
+
+test("Zoho adapter serializes the India API contract and disables tracking", async (t) => {
+  const old = { ...env };
+  Object.assign(env, { ZOHO_EMAIL_API_KEY: "synthetic-send-key" });
+  t.mock.method(globalThis, "fetch", async (url: unknown, options: RequestInit) => {
+    assert.equal(url, "https://cpaas.zoho.in/v1.1/email");
+    assert.equal(
+      (options.headers as Record<string, string>).Authorization,
+      "Zoho-enczapikey synthetic-send-key",
+    );
+    const body = JSON.parse(String(options.body));
+    assert.deepEqual(body, {
+      from: { address: "noreply@example.test", name: "USVC" },
+      to: [{ email_address: { address: email.to } }],
+      reply_to: [{ address: email.replyTo }],
+      subject: email.subject,
+      htmlbody: email.html,
+      textbody: email.text,
+      client_reference: "opaque-reference",
+      track_opens: false,
+      track_clicks: false,
+    });
+    assert.equal(options.redirect, "error");
+    return response(accepted);
   });
-  assert.deepEqual(await new ZohoEmailClient().send(email, "opaque-reference"), {
-    kind: "accepted",
-    messageId: "smtp-id",
-  });
-  assert.equal(closed, 1);
-  assert.equal(fetch.mock.callCount(), 0);
-});
-test("SMTP requires encrypted authenticated connections on both supported ports", () => {
-  const old = env.SMTP_PORT;
   try {
-    for (const port of [465, 587] as const) {
-      env.SMTP_PORT = port;
-      const options = smtpOptions();
-      assert.equal(options.secure, port === 465);
-      assert.equal(options.requireTLS, true);
-      assert.equal(options.tls.rejectUnauthorized, true);
-      assert.equal(options.debug, false);
-      assert.equal(options.logger, false);
-      assert.equal(options.disableFileAccess, true);
-      assert.equal(options.disableUrlAccess, true);
-      assert.ok(options.socketTimeout < 120000);
-    }
+    assert.deepEqual(await new ZohoEmailClient().send(email, "opaque-reference"), {
+      kind: "accepted",
+      messageId: "zoho-request",
+    });
   } finally {
-    env.SMTP_PORT = old;
+    Object.assign(env, old);
   }
 });
-test("SMTP retries only explicit temporary rejections; lost DATA replies remain uncertain", async (t) => {
-  for (const code of [421, 450, 451, 550, 535, undefined])
-    await t.test(String(code), async (st) => {
-      st.mock.method(
-        nodemailer,
-        "createTransport",
-        () =>
-          ({
-            sendMail: async () => {
-              throw Object.assign(Error("private body and credentials"), {
-                responseCode: code,
-                command: "DATA",
-              });
-            },
-            close: () => {},
-          }) as unknown as ReturnType<typeof nodemailer.createTransport>,
+test("Zoho send results never retry ambiguous acceptance or expose provider contents", async (t) => {
+  const cases = [
+    { status: 429, body: failure, expected: "rejected", retry: true },
+    { status: 400, body: failure, expected: "rejected", retry: false },
+    { status: 401, body: failure, expected: "rejected", retry: false },
+    { status: 503, body: failure, expected: "uncertain" },
+    { status: 200, body: { request_id: "bad", data: [] }, expected: "uncertain" },
+    { status: 429, body: { secret: "private-provider-data" }, expected: "uncertain" },
+  ];
+  for (const row of cases)
+    await t.test(String(row.status) + " " + row.expected, async (st) => {
+      st.mock.method(globalThis, "fetch", async () =>
+        response(row.body, row.status, { "retry-after": "30" }),
       );
       const result = await new ZohoEmailClient().send(email, "opaque");
-      assert.equal(result.kind, code ? "rejected" : "uncertain");
-      if (result.kind === "rejected") assert.equal(result.retryable, code! < 500);
-      assert.doesNotMatch(JSON.stringify(result), /private|credentials/);
+      assert.equal(result.kind, row.expected);
+      if (result.kind === "rejected") {
+        assert.equal(result.retryable, row.retry);
+        assert.equal(result.retryAfterMs, 30000);
+      }
+      assert.doesNotMatch(JSON.stringify(result), /private-provider-data/);
     });
-});
-test("invalid sender or reference never opens an SMTP connection", async (t) => {
-  const mock = t.mock.method(nodemailer, "createTransport", () => {
-    throw Error("must not call");
+  await t.test("timeouts and invalid bodies remain uncertain", async (st) => {
+    st.mock.method(globalThis, "fetch", async () => {
+      throw Error("secret-recipient-and-token");
+    });
+    assert.deepEqual(await new ZohoEmailClient().send(email, "opaque"), {
+      kind: "uncertain",
+      code: "ZOHO_REQUEST_UNCERTAIN",
+    });
   });
-  for (const [from, ref] of [
-    ["bad\r\nBcc: injected@example.test", "opaque"],
-    [email.from, "bad\r\nheader"],
-  ])
-    assert.equal((await new ZohoEmailClient().send({ ...email, from }, ref)).kind, "rejected");
-  assert.equal(mock.mock.callCount(), 0);
+  await t.test("invalid sender is rejected before transmission", async (st) => {
+    const mock = st.mock.method(globalThis, "fetch", async () => {
+      throw Error("must not call");
+    });
+    assert.equal(
+      (
+        await new ZohoEmailClient().send(
+          { ...email, from: "bad\r\nBcc: private@example.test" },
+          "opaque",
+        )
+      ).kind,
+      "rejected",
+    );
+    assert.equal(mock.mock.callCount(), 0);
+  });
 });
 test("Zoho log lookup uses scoped OAuth, refreshes once after 401 and checks reference ownership", async (t) => {
   const old = { ...env };
@@ -185,4 +189,21 @@ test("sender parsing accepts existing display-name configuration and rejects hea
   });
   assert.deepEqual(parseSender("noreply@example.test"), { address: "noreply@example.test" });
   assert.throws(() => parseSender("Example\r\nBcc: private@example.test"));
+});
+
+test("invalid message references and injected subjects never reach the API", async (t) => {
+  const mock = t.mock.method(globalThis, "fetch", async () => {
+    throw Error("must not send");
+  });
+  for (const [reference, subject] of [
+    ["bad\r\nreference", email.subject],
+    ["opaque", "bad\r\nsubject"],
+  ]) {
+    assert.deepEqual(await new ZohoEmailClient().send({ ...email, subject }, reference), {
+      kind: "rejected",
+      retryable: false,
+      code: "ZOHO_MESSAGE_INVALID",
+    });
+  }
+  assert.equal(mock.mock.callCount(), 0);
 });

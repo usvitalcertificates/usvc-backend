@@ -15,13 +15,7 @@ services:
         value: US Vital Certificates <noreply@usvitalcertificates.org>
       - key: EMAIL_REPLY_TO
         value: support@usvitalcertificates.org
-      - key: SMTP_HOST
-        value: smtp.zeptomail.in
-      - key: SMTP_PORT
-        value: "465"
-      - key: SMTP_USER
-        value: emailapikey
-      - key: SMTP_PASSWORD
+      - key: ZOHO_EMAIL_API_KEY
         sync: false
       - key: ZOHO_WEBHOOK_SECRET
         sync: false

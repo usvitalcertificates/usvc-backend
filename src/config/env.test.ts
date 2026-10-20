@@ -52,7 +52,7 @@ test("enabled Zoho email requires sending and read-only reconciliation credentia
     EMAIL_FROM: "USVC <noreply@example.test>",
     EMAIL_REPLY_TO: "support@example.test",
     STAFF_PORTAL_URL: "https://example.test",
-    SMTP_PASSWORD: "smtp-password",
+    ZOHO_EMAIL_API_KEY: "send-key",
     ZOHO_WEBHOOK_SECRET: "s".repeat(32),
     ZOHO_EMAIL_AGENT_KEY: "agent",
     ZOHO_OAUTH_CLIENT_ID: "client",
@@ -60,17 +60,13 @@ test("enabled Zoho email requires sending and read-only reconciliation credentia
     ZOHO_OAUTH_REFRESH_TOKEN: "refresh",
   });
   assert.equal(envSchema.safeParse(enabled).success, true);
-  assert.equal(envSchema.safeParse({ ...enabled, SMTP_PORT: "587" }).success, true);
-  assert.equal(envSchema.safeParse({ ...enabled, SMTP_HOST: "smtp.zoho.in" }).success, false);
-  assert.equal(envSchema.safeParse({ ...enabled, SMTP_USER: "wrong" }).success, false);
+  assert.equal(envSchema.safeParse({ ...enabled, ZOHO_WEBHOOK_SECRET: undefined }).success, true);
   assert.equal(
-    "ZOHO_EMAIL_API_KEY" in
-      envSchema.parse({ ...enabled, ZOHO_EMAIL_API_KEY: "ignored-obsolete-token" }),
+    "SMTP_PASSWORD" in envSchema.parse({ ...enabled, SMTP_PASSWORD: "obsolete" }),
     false,
   );
   for (const key of [
-    "SMTP_PASSWORD",
-    "ZOHO_WEBHOOK_SECRET",
+    "ZOHO_EMAIL_API_KEY",
     "ZOHO_EMAIL_AGENT_KEY",
     "ZOHO_OAUTH_CLIENT_ID",
     "ZOHO_OAUTH_CLIENT_SECRET",
@@ -80,7 +76,11 @@ test("enabled Zoho email requires sending and read-only reconciliation credentia
     delete missing[key as keyof typeof missing];
     assert.equal(envSchema.safeParse(missing).success, false, key);
   }
-  assert.equal(envSchema.safeParse({ ...enabled, SMTP_PORT: "25" }).success, false);
+  assert.equal(
+    envSchema.safeParse({ ...enabled, ZOHO_EMAIL_API_KEY: "Zoho-enczapikey prefixed-token" })
+      .success,
+    false,
+  );
   assert.equal(
     envSchema.safeParse({ ...enabled, EMAIL_FROM: "invalid\r\nBcc: someone@example.test" }).success,
     false,

@@ -1,4 +1,3 @@
-import nodemailer from "nodemailer";
 import { z } from "zod";
 import { env } from "../config/env.js";
 
@@ -26,6 +25,14 @@ export function parseSender(value: string): { address: string; name?: string } {
 }
 const api = "https://cpaas.zoho.in/v1.1/email";
 const tokenUrl = "https://accounts.zoho.in/oauth/v2/token";
+const accepted = z.object({
+  request_id: z.string().min(1),
+  data: z.array(z.object({ code: z.literal("EM_104") })).min(1),
+});
+const rejected = z.object({
+  data: z.object({ error_code: z.string().regex(/^[A-Z][A-Z0-9_]{1,50}$/) }),
+  message: z.literal("error"),
+});
 const logs = z.object({
   status: z.literal("success"),
   data: z.array(
@@ -46,23 +53,10 @@ async function json(response: Response): Promise<unknown> {
     return null;
   }
 }
-export function smtpOptions() {
-  return {
-    host: env.SMTP_HOST,
-    port: env.SMTP_PORT,
-    secure: env.SMTP_PORT === 465,
-    requireTLS: true,
-    auth: { user: env.SMTP_USER!, pass: env.SMTP_PASSWORD! },
-    tls: { rejectUnauthorized: true, minVersion: "TLSv1.2" as const },
-    connectionTimeout: 15_000,
-    greetingTimeout: 15_000,
-    socketTimeout: 30_000,
-    dnsTimeout: 10_000,
-    logger: false as const,
-    debug: false,
-    disableFileAccess: true,
-    disableUrlAccess: true,
-  };
+function retryAfter(value: string | null): number | undefined {
+  if (!value) return undefined;
+  const ms = /^\d+$/.test(value) ? Number(value) * 1000 : Date.parse(value) - Date.now();
+  return Number.isFinite(ms) ? Math.min(24 * 60 * 60_000, Math.max(1000, ms)) : undefined;
 }
 export class ZohoEmailClient {
   private token?: { value: string; until: number };
@@ -107,38 +101,45 @@ export class ZohoEmailClient {
       return { kind: "rejected", retryable: false, code: "EMAIL_ADDRESS_INVALID" };
     }
     if (!/^[A-Za-z0-9_-]{1,128}$/.test(clientReference) || /[\r\n]/.test(message.subject))
-      return { kind: "rejected", retryable: false, code: "ZOHO_SMTP_MESSAGE_INVALID" };
-    const transport = nodemailer.createTransport(smtpOptions());
+      return { kind: "rejected", retryable: false, code: "ZOHO_MESSAGE_INVALID" };
     try {
-      const info = await transport.sendMail({
-        from: { address: from.address, name: from.name },
-        to: { address: message.to },
-        replyTo: { address: message.replyTo },
-        subject: message.subject,
-        html: message.html,
-        text: message.text,
-        messageId: `<${clientReference}@${from.address.split("@")[1]}>`,
-        headers: { "X-TM-CLIENT-REF": clientReference },
-        disableFileAccess: true,
-        disableUrlAccess: true,
+      const response = await fetch(api, {
+        method: "POST",
+        redirect: "error",
+        signal: AbortSignal.timeout(15_000),
+        headers: {
+          Authorization: `Zoho-enczapikey ${env.ZOHO_EMAIL_API_KEY!}`,
+          "content-type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          from,
+          to: [{ email_address: { address: message.to } }],
+          reply_to: [{ address: message.replyTo }],
+          subject: message.subject,
+          htmlbody: message.html,
+          textbody: message.text,
+          client_reference: clientReference,
+          track_opens: false,
+          track_clicks: false,
+        }),
       });
-      if (info.accepted?.length === 1 && !info.rejected?.length && /^250\b/.test(info.response))
-        return { kind: "accepted", messageId: info.messageId };
-      return { kind: "uncertain", code: "ZOHO_SMTP_RESULT_UNCERTAIN" };
-    } catch (error) {
-      const parsed = z
-        .object({ responseCode: z.number().int().min(400).max(599) })
-        .safeParse(error);
-      if (parsed.success)
+      const body = await json(response);
+      const success = accepted.safeParse(body);
+      if (response.ok && success.success)
+        return { kind: "accepted", messageId: success.data.request_id };
+      const failure = rejected.safeParse(body);
+      // Only explicit provider rejections establish that another send is safe.
+      if (response.status >= 400 && response.status < 500 && failure.success)
         return {
           kind: "rejected",
-          retryable: parsed.data.responseCode < 500,
-          code: `ZOHO_SMTP_${parsed.data.responseCode}`,
+          retryable: response.status === 429,
+          code: `ZOHO_${failure.data.data.error_code}`,
+          retryAfterMs: retryAfter(response.headers.get("retry-after")),
         };
-      // A lost final DATA reply can mean the message was already accepted.
-      return { kind: "uncertain", code: "ZOHO_SMTP_REQUEST_UNCERTAIN" };
-    } finally {
-      transport.close();
+      return { kind: "uncertain", code: "ZOHO_RESULT_UNCERTAIN" };
+    } catch {
+      return { kind: "uncertain", code: "ZOHO_REQUEST_UNCERTAIN" };
     }
   }
   async find(clientReference: string): Promise<{ messageId: string } | null> {

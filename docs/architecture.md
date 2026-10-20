@@ -29,7 +29,7 @@ Email/analytics: `email-outbox.ts` (leased jobs, fenced Zoho dispatch, evidence-
 ## Middleware + config
 
 - `middleware/auth.ts`: `requireAuth` (Bearer JWT) → `requireActiveStaff` (refuses disabled/blocked + pre-revocation tokens, touches `lastActivityAt`) → `requireAdmin` (`role==ADMIN`). 5-fail/15m lockout, 10m MFA token, 30m access + 7d rotating refresh. Coverage note: `requireActiveStaff` gates `/staff/*` and `/admin/*`, but the `orders.ts` staff endpoints (detail/audit/status/document) check `requireAuth` alone — see `status.md` backlog.
-- `config/env.ts`: Zod-parsed, fail-closed (prefix checks `mongodb`, `sk_`, `whsec_`, `pk_`, `G-`; requires SMTP password, Zoho webhook Authentication Key and read-only Agent/OAuth credentials plus valid sender/Reply-To when `EMAIL_ENABLED=true`, GA4 when `ANALYTICS_ENABLED=true`, OpenAI when enabled).
+- `config/env.ts`: Zod-parsed, fail-closed (prefix checks `mongodb`, `sk_`, `whsec_`, `pk_`, `G-`; requires Zoho API send token and read-only Agent/OAuth credentials; optional signed delivery callbacks use ZOHO_WEBHOOK_SECRET plus valid sender/Reply-To when `EMAIL_ENABLED=true`, GA4 when `ANALYTICS_ENABLED=true`, OpenAI when enabled).
 
 ## API contracts
 
@@ -63,12 +63,12 @@ Recovery uses `applicationRevision` and the shared payment reservation filter to
 
 ## Zoho CPaaS transport
 
-`zoho-email.ts` sends through encrypted India SMTP and refreshes read-only log OAuth tokens through the India account service. SMTP passwords, webhook Authentication Keys and OAuth credentials stay server-only; open/click tracking must be disabled in the Zoho Agent. Templates and all public/recovery APIs are unchanged.
+`zoho-email.ts` sends through the India HTTPS API and refreshes read-only log OAuth tokens through the India account service. Sending tokens, optional webhook Authentication Keys and OAuth credentials stay server-only; open/click tracking is explicitly disabled per send. Templates and all public/recovery APIs are unchanged.
 
 The outbox reserves an `email_dispatches` record transactionally before sending, using an opaque stable reference. Receipts contain only record IDs, timestamps, sanitized states/codes and provider IDs. A definite retryable rejection can requeue; a timeout/crash/ambiguous response cannot. Unknown attempts reconcile via reference-filtered logs, with a 24-hour/earlier-expiry cutoff and manual review. Provider acceptance, not inbox delivery, maps to existing SENT/audit semantics. Receipts survive recovery TTL deletion; acceptance finalization and audit events share a transaction. Previously attempted legacy jobs are held instead of being replayed through Zoho. The new release has no Resend client, package or fallback.
 
 See [Zoho environment setup and cutover](zoho-email-migration.md) for both repositories, OAuth scope, staging recipient overrides, old-key removal, operations-only reporting/reconciliation, queue review and rollback. No infrastructure service type, mailbox provider, payment flow or frontend variable changes are required.
 
-### SMTP sending and automatic delivery evidence
+### API sending and automatic delivery evidence
 
-`zoho-email.ts` sends exclusively through Nodemailer to India SMTP, with validated TLS on 465 or required STARTTLS on 587. Explicit SMTP 4xx may retry; 5xx stop; lost final responses remain fenced. The opaque `X-TM-CLIENT-REF` also filters the read-only OAuth log API. No send API token is used. `POST /webhooks/zoho` validates Zoho HMAC-SHA256 on its decoded form event and checks the Agent/reference. It records only ranked delivery outcomes and acceptance metadata; delivery/bounce callbacks finalize the existing outbox/audit once even after timeouts or recovery TTL deletion. Out-of-order/duplicate events cannot downgrade terminal outcomes or trigger another send. Existing scheduled log reconciliation remains the fallback; absence of both sources never authorizes a blind retry. Configure account-level SMTP tracking off. See `docs/zoho-email-migration.md` for SMTP, webhook, read-only OAuth and Render port requirements.
+`zoho-email.ts` sends JSON over HTTPS to the India API using the Agent send token and explicit tracking disablement. No SMTP credentials, outbound SMTP ports or Nodemailer package are used. The opaque `client_reference` filters read-only OAuth logs and matches signed callback evidence. `POST /webhooks/zoho` optionally validates Zoho HMAC-SHA256 over its decoded form payload and checks the Agent/reference. API and older SMTP callbacks can both resolve existing receipts. Only ranked delivery outcomes and acceptance metadata are retained; out-of-order/duplicate events cannot downgrade terminal outcomes or cause another send. OAuth log reconciliation works without webhooks; absence of both evidence sources never authorizes a blind retry. See `docs/zoho-email-migration.md` for configuration and controlled staging checks.

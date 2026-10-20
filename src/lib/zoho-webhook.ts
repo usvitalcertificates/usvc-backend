@@ -72,7 +72,6 @@ export async function applyZohoWebhook(payload: unknown): Promise<void> {
     .sort((a, b) => b.rank - a.rank)[0];
   if (!outcome) return;
   for (const message of event.event_message) {
-    if (!message.email_info.is_smtp_trigger) continue;
     const filter = {
       provider: "ZOHO",
       reference: message.email_info.client_reference,

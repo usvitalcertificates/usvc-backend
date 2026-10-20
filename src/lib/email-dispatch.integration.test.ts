@@ -12,7 +12,7 @@ import { StaffUser } from "../models/staff.js";
 import { Order } from "../models/order.js";
 import { RecoveryGrant, RecoveryChallenge } from "../models/recovery.js";
 import { env } from "../config/env.js";
-import { zohoEmail, type SendResult } from "./zoho-email.js";
+import { zohoEmail, ZohoEmailClient, type SendResult } from "./zoho-email.js";
 import { processNextEmail, reconcileEmailDispatch } from "./email-outbox.js";
 import { encryptSensitive } from "./crypto.js";
 import { hashInviteToken } from "./staff-auth.js";
@@ -472,7 +472,7 @@ test(
       );
       await clean();
       await t.test(
-        "signed SMTP delivery callbacks resolve timeouts once and preserve terminal outcomes",
+        "signed API delivery callbacks resolve timeouts once and preserve terminal outcomes",
         async () => {
           env.ZOHO_EMAIL_AGENT_KEY = "synthetic-agent";
           env.ZOHO_WEBHOOK_SECRET = "s".repeat(32);
@@ -481,7 +481,7 @@ test(
           const port = (server.address() as { port: number }).port;
           try {
             const message = await job();
-            result = { kind: "uncertain", code: "ZOHO_SMTP_REQUEST_UNCERTAIN" };
+            result = { kind: "uncertain", code: "ZOHO_REQUEST_UNCERTAIN" };
             await processNextEmail();
             const receipt = await EmailDispatch.findById(message._id).lean();
             const event = {
@@ -492,8 +492,8 @@ test(
                 {
                   email_info: {
                     client_reference: receipt!.reference,
-                    email_reference: "smtp-provider-reference",
-                    is_smtp_trigger: true,
+                    email_reference: "api-provider-reference",
+                    is_smtp_trigger: false,
                     subject: "private discarded content",
                     to: "private@example.test",
                   },
@@ -553,7 +553,7 @@ test(
         "late callbacks resolve expired-job receipts without a resend or exposing secrets",
         async () => {
           const message = await job();
-          result = { kind: "uncertain", code: "ZOHO_SMTP_REQUEST_UNCERTAIN" };
+          result = { kind: "uncertain", code: "ZOHO_REQUEST_UNCERTAIN" };
           await processNextEmail();
           const receipt = await EmailDispatch.findById(message._id).lean();
           await EmailDispatch.updateOne({ _id: message._id }, { $set: { state: "REVIEW" } });
@@ -585,16 +585,79 @@ test(
       );
       await clean();
       await t.test(
-        "wrong Agent, unknown references and non-SMTP events cannot finalize jobs",
+        "real API adapter resolves a lost send response through read-only logs without another POST",
+        async (st) => {
+          env.ZOHO_WEBHOOK_SECRET = undefined;
+          env.ZOHO_EMAIL_API_KEY = "synthetic-send-key";
+          env.ZOHO_EMAIL_AGENT_KEY = "synthetic-agent";
+          const client = new ZohoEmailClient();
+          st.mock.method(zohoEmail, "send", client.send.bind(client));
+          st.mock.method(zohoEmail, "find", client.find.bind(client));
+          let providerSends = 0,
+            logReads = 0,
+            reference = "";
+          st.mock.method(globalThis, "fetch", async (input: unknown, options: RequestInit) => {
+            const url = String(input);
+            if (url.includes("accounts.zoho.in"))
+              return new Response(
+                JSON.stringify({ access_token: "synthetic-access", expires_in: 3600 }),
+              );
+            if (options.method === "POST") {
+              providerSends++;
+              assert.equal(
+                (options.headers as Record<string, string>).Authorization,
+                "Zoho-enczapikey synthetic-send-key",
+              );
+              const body = JSON.parse(String(options.body));
+              reference = body.client_reference;
+              assert.equal(body.track_clicks, false);
+              assert.equal(body.track_opens, false);
+              // Zoho accepted the message, but its HTTP response was lost.
+              throw Error("synthetic lost response");
+            }
+            logReads++;
+            assert.equal(new URL(url).searchParams.get("client_reference"), reference);
+            return new Response(
+              JSON.stringify({
+                status: "success",
+                data: [
+                  {
+                    mailagent_key: "synthetic-agent",
+                    client_reference: reference,
+                    request_id: "existing-provider-id",
+                  },
+                ],
+              }),
+            );
+          });
+          const message = await job();
+          await processNextEmail();
+          assert.equal((await EmailOutbox.findById(message._id).lean())!.status, "HELD");
+          await EmailDispatch.updateOne(
+            { _id: message._id },
+            { $set: { nextReconcileAt: new Date(0) } },
+          );
+          await processNextEmail();
+          assert.equal((await EmailOutbox.findById(message._id).lean())!.status, "SENT");
+          assert.equal(
+            (await ContactMessage.findById(message.contactMessageId).lean())!.emailEvents.length,
+            1,
+          );
+          assert.equal(providerSends, 1);
+          assert.equal(logReads, 1);
+        },
+      );
+      await clean();
+      await t.test(
+        "wrong Agent, unknown references and unknown events cannot finalize jobs",
         async () => {
           const message = await job();
-          result = { kind: "uncertain", code: "ZOHO_SMTP_REQUEST_UNCERTAIN" };
+          result = { kind: "uncertain", code: "ZOHO_REQUEST_UNCERTAIN" };
           await processNextEmail();
           const receipt = await EmailDispatch.findById(message._id).lean();
           for (const [agent, reference, smtp] of [
             ["wrong", receipt!.reference, true],
             [env.ZOHO_EMAIL_AGENT_KEY, "a".repeat(64), true],
-            [env.ZOHO_EMAIL_AGENT_KEY, receipt!.reference, false],
           ] as const)
             await applyZohoWebhook({
               mailagent_key: agent,
@@ -620,7 +683,7 @@ test(
                 email_info: {
                   client_reference: receipt!.reference,
                   email_reference: "ref",
-                  is_smtp_trigger: true,
+                  is_smtp_trigger: false,
                 },
               },
             ],
