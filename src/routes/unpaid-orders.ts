@@ -1,3 +1,6 @@
+import mongoose from "mongoose";
+import { RecoveryGrant, RecoverySession, RecoveryChallenge } from "../models/recovery.js";
+import { newRecoveryGrant, requireRecoveryEmail } from "../lib/recovery.js";
 import { OUTREACH_OUTCOMES } from "../lib/outreach.js";
 import { Router } from "express";
 import { z } from "zod";
@@ -243,5 +246,60 @@ unpaidOrdersRouter.post("/:id/follow-ups", async (req, res, next) => {
     res.status(201).json({ ok: true });
   } catch (error) {
     next(error);
+  }
+});
+
+// Staff can share a private link, but cannot bypass customer email verification.
+unpaidOrdersRouter.post("/:id/resume-link", async (req, res, next) => {
+  try {
+    requireRecoveryEmail();
+    const id = objectId.parse(req.params.id);
+    z.object({}).strict().parse(req.body);
+    let result;
+    await mongoose.connection.transaction(async (session) => {
+      const order = await Order.findOne({
+        _id: id,
+        paymentStatus: { $in: ["PENDING", "FAILED"] },
+        status: { $in: ["DRAFT", "AWAITING_PAYMENT"] },
+      })
+        .session(session)
+        .lean();
+      if (!order)
+        throw new ApiError(409, "Only unpaid starting orders can be resumed. Refresh this order.");
+      const prior = await RecoveryGrant.find({
+        orderId: id,
+        source: "STAFF",
+        revokedAt: { $exists: false },
+      })
+        .session(session)
+        .distinct("_id");
+      await RecoveryGrant.updateMany(
+        { _id: { $in: prior } },
+        { $set: { revokedAt: new Date() } },
+        { session },
+      );
+      await RecoverySession.deleteMany({ grantId: { $in: prior } }, { session });
+      await RecoveryChallenge.deleteMany({ grantId: { $in: prior } }, { session });
+      const created = await newRecoveryGrant(order.applicant.email, "STAFF", order._id, session);
+      result = { url: created.url, expiresAt: created.expiresAt };
+      // Touch the order so concurrent payment/state changes conflict with generation.
+      await Order.updateOne(
+        { _id: id },
+        {
+          $push: {
+            auditEvents: {
+              actorId: dashboardUser(req).sub,
+              action: "resume_link_generated",
+              createdAt: new Date(),
+            },
+          },
+        },
+        { session },
+      );
+    });
+    await auditDashboard(req, "resume_link_generated", [id]);
+    res.json(result);
+  } catch (e) {
+    next(e);
   }
 });

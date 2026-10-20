@@ -16,10 +16,16 @@ const EmailOutboxSchema = new Schema(
      * Tokens expire 48h after issue regardless.
      */
     setupToken: { type: String, select: false },
+    recoverySecret: { type: String, select: false },
+    recoveryExpiresAt: Date,
+    recoveryGrantId: Schema.Types.ObjectId,
+    recoveryChallengeId: Schema.Types.ObjectId,
     recipient: { type: String, required: true },
     template: {
       type: String,
       enum: [
+        "RECOVERY_LINK",
+        "RECOVERY_CODE",
         "PAYMENT_CONFIRMATION",
         "CONTACT_SUPPORT_NOTIFICATION",
         "CONTACT_CUSTOMER_RECEIPT",
@@ -45,6 +51,8 @@ const EmailOutboxSchema = new Schema(
 );
 
 EmailOutboxSchema.index({ status: 1, nextAttemptAt: 1 });
+// Only recovery jobs carry this field; TTL removes expired delivery secrets even if email is disabled.
+EmailOutboxSchema.index({ recoveryExpiresAt: 1 }, { expireAfterSeconds: 0 });
 
 export const EmailOutbox =
   models.EmailOutbox ?? model("EmailOutbox", EmailOutboxSchema, "email_outbox");
