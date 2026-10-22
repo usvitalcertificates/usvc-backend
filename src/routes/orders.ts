@@ -7,7 +7,7 @@ import { orderNumber } from "../lib/orders.js";
 import {
   createOrderSchema,
   isCountyTemporarilyUnavailable,
-  NEW_YORK_MARRIAGE_COUNTY_UNAVAILABLE_MESSAGE,
+  NEW_YORK_COUNTY_UNAVAILABLE_MESSAGE,
   pricingBreakdown,
   validateGeoSelection,
   validateOrderSubmission,
@@ -374,11 +374,11 @@ ordersRouter.post("/:id/checkout-session", async (req, res, next) => {
     const id = z.string().min(1).parse(req.params.id);
     const order = await Order.findById(id);
     if (!order) throw new ApiError(404, "Order not found");
-    if (isCountyTemporarilyUnavailable(order.stateCode, order.geo.county, order.certificate)) {
+    if (isCountyTemporarilyUnavailable(order.stateCode, order.geo.county)) {
       if (order.stateCode.toUpperCase() === "NY")
         return res.status(422).json({
-          message: NEW_YORK_MARRIAGE_COUNTY_UNAVAILABLE_MESSAGE,
-          errors: { county: NEW_YORK_MARRIAGE_COUNTY_UNAVAILABLE_MESSAGE },
+          message: NEW_YORK_COUNTY_UNAVAILABLE_MESSAGE,
+          errors: { county: NEW_YORK_COUNTY_UNAVAILABLE_MESSAGE },
         });
       throw new ApiError(
         422,

@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import { Order } from "../models/order.js";
 import {
   COUNTY_UNAVAILABLE_MESSAGE,
-  NEW_YORK_MARRIAGE_COUNTY_UNAVAILABLE_MESSAGE,
+  NEW_YORK_COUNTY_UNAVAILABLE_MESSAGE,
   validateCorrection,
   createOrderSchema,
   isCountyTemporarilyUnavailable,
@@ -631,52 +631,48 @@ function newYorkInput(certificate: "BIRTH" | "DEATH" | "MARRIAGE" | "DIVORCE", c
   });
 }
 
-test("NY marriage restrictions cover submission, card-free verification/recovery and corrections", () => {
-  for (const county of unavailableNewYorkCounties) {
-    const input = newYorkInput("MARRIAGE", county);
-    for (const result of [
-      validateOrderSubmission(input),
-      validateOrderSubmission({ ...input, paymentCard: undefined }, { requireCard: false }),
-      validateOrderSubmission({ ...input, requestorSsn: "" }, { storedSsn: true }),
-      validateCorrection(input),
-    ]) {
-      assert.equal(result.ok, false);
-      assert.equal(result.errors.county, NEW_YORK_MARRIAGE_COUNTY_UNAVAILABLE_MESSAGE);
-    }
-  }
-});
-test("other NY certificate types and other NY counties remain available", () => {
-  for (const county of unavailableNewYorkCounties)
-    for (const certificate of ["BIRTH", "DEATH", "DIVORCE"] as const) {
+const newYorkCertificateTypes = ["BIRTH", "DEATH", "MARRIAGE", "DIVORCE"] as const;
+test("NY restrictions cover all four certificate types for submission, verification/recovery and corrections", () => {
+  for (const certificate of newYorkCertificateTypes)
+    for (const county of unavailableNewYorkCounties) {
       const input = newYorkInput(certificate, county);
-      assert.equal(validateOrderSubmission(input).errors.county, undefined);
-      assert.equal(validateCorrection(input).errors.county, undefined);
+      for (const result of [
+        validateOrderSubmission(input),
+        validateOrderSubmission({ ...input, paymentCard: undefined }, { requireCard: false }),
+        validateOrderSubmission({ ...input, requestorSsn: "" }, { storedSsn: true }),
+        validateCorrection(input),
+      ]) {
+        assert.equal(result.ok, false);
+        assert.equal(result.errors.county, NEW_YORK_COUNTY_UNAVAILABLE_MESSAGE);
+      }
     }
-  const input = newYorkInput("MARRIAGE", "Albany");
-  assert.equal(validateOrderSubmission(input).ok, true);
-  assert.equal(validateCorrection(input).ok, true);
-  assert.equal(isCountyTemporarilyUnavailable("ny", " QUEENS ", "MARRIAGE"), true);
-  assert.equal(isCountyTemporarilyUnavailable("NY", "Queensbury", "MARRIAGE"), false);
+});
+test("other NY counties remain available for all four certificate types", () => {
+  for (const certificate of newYorkCertificateTypes) {
+    const input = newYorkInput(certificate, "Albany");
+    assert.equal(validateOrderSubmission(input).ok, true);
+    assert.equal(validateCorrection(input).ok, true);
+  }
+  assert.equal(isCountyTemporarilyUnavailable("ny", " QUEENS "), true);
+  assert.equal(isCountyTemporarilyUnavailable("NY", "Queensbury"), false);
 });
 test("California county restrictions remain certificate-independent", () => {
-  for (const certificate of ["BIRTH", "DEATH", "MARRIAGE", "DIVORCE"]) {
-    for (const county of [
-      "San Francisco",
-      "San Bernardino",
-      "Yolo",
-      "Riverside",
-      "Del Norte",
-      "Lake",
-      "Sutter",
-      "Kings",
-      "Santa Barbara",
-    ])
-      assert.equal(isCountyTemporarilyUnavailable("CA", county, certificate), true);
-    assert.equal(isCountyTemporarilyUnavailable("CA", "Los Angeles", certificate), false);
-  }
+  for (const county of [
+    "San Francisco",
+    "San Bernardino",
+    "Yolo",
+    "Riverside",
+    "Del Norte",
+    "Lake",
+    "Sutter",
+    "Kings",
+    "Santa Barbara",
+  ])
+    assert.equal(isCountyTemporarilyUnavailable("CA", county), true);
+  assert.equal(isCountyTemporarilyUnavailable("CA", "Los Angeles"), false);
 });
 
-test("HTTP create, verification, and stored checkout reject NY marriage before payment or DB writes", async (t) => {
+test("HTTP create, verification, and stored checkout reject all four NY certificate types before payment or DB writes", async (t) => {
   // Import routes only after selecting isolated, non-live test configuration.
   Object.assign(process.env, {
     NODE_ENV: "test",
@@ -704,28 +700,35 @@ test("HTTP create, verification, and stored checkout reject NY marriage before p
   assert.ok(address && typeof address !== "string");
   const origin = `http://127.0.0.1:${address.port}`;
   try {
-    for (const county of unavailableNewYorkCounties) {
-      for (const path of ["/orders", "/orders/verify-before-payment"]) {
-        const response = await fetch(origin + path, {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(newYorkInput("MARRIAGE", county)),
-        });
-        assert.equal(response.status, 422);
-        const body = (await response.json()) as { errors: Record<string, string> };
-        assert.equal(body.errors.county, NEW_YORK_MARRIAGE_COUNTY_UNAVAILABLE_MESSAGE);
+    for (const certificate of newYorkCertificateTypes)
+      for (const county of unavailableNewYorkCounties) {
+        for (const path of ["/orders", "/orders/verify-before-payment"]) {
+          const response = await fetch(origin + path, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(newYorkInput(certificate, county)),
+          });
+          assert.equal(response.status, 422);
+          const body = (await response.json()) as { errors: Record<string, string> };
+          assert.equal(body.errors.county, NEW_YORK_COUNTY_UNAVAILABLE_MESSAGE);
+        }
       }
-    }
+    let checkoutCertificate: (typeof newYorkCertificateTypes)[number] = "BIRTH";
     const findOrder = t.mock.method(Order, "findById", async () => ({
       stateCode: "NY",
-      certificate: "MARRIAGE",
+      certificate: checkoutCertificate,
       geo: { county: "Queens" },
     }));
-    const checkout = await fetch(origin + "/orders/existing/checkout-session", { method: "POST" });
-    assert.equal(checkout.status, 422);
-    const body = (await checkout.json()) as { errors: Record<string, string> };
-    assert.equal(body.errors.county, NEW_YORK_MARRIAGE_COUNTY_UNAVAILABLE_MESSAGE);
-    assert.equal(findOrder.mock.callCount(), 1);
+    for (const certificate of newYorkCertificateTypes) {
+      checkoutCertificate = certificate;
+      const checkout = await fetch(origin + "/orders/existing/checkout-session", {
+        method: "POST",
+      });
+      assert.equal(checkout.status, 422);
+      const body = (await checkout.json()) as { errors: Record<string, string> };
+      assert.equal(body.errors.county, NEW_YORK_COUNTY_UNAVAILABLE_MESSAGE);
+    }
+    assert.equal(findOrder.mock.callCount(), 4);
     assert.equal(Order.db.readyState, 0, "no database connection is used");
     const available = await fetch(origin + "/orders/verify-before-payment", {
       method: "POST",
