@@ -20,7 +20,7 @@ test("submission email recalls the order and explains next steps", () => {
     "California Birth Certificate",
     "2 certified copies (Rush)",
     "Hi Jordan,",
-    "September 23, 2026",
+    "09/23/2026",
     "No action is needed from you",
     "vary from state to state",
   ]) {
