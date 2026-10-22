@@ -43,10 +43,16 @@ const TEMPORARILY_UNAVAILABLE_CALIFORNIA_COUNTIES = new Set([
 export const COUNTY_UNAVAILABLE_MESSAGE =
   "Certificate issuance is currently unavailable through this county authority. Please select a different county.";
 
+const UNAVAILABLE_NEW_YORK_COUNTIES = new Set(["new york", "kings", "bronx", "richmond", "queens"]);
+export const NEW_YORK_COUNTY_UNAVAILABLE_MESSAGE =
+  "No Service Available for Certificates in this county.";
+
 export function isCountyTemporarilyUnavailable(stateCode: string, county: string): boolean {
   return (
-    stateCode.toUpperCase() === "CA" &&
-    TEMPORARILY_UNAVAILABLE_CALIFORNIA_COUNTIES.has(county.trim().toLowerCase())
+    (stateCode.toUpperCase() === "CA" &&
+      TEMPORARILY_UNAVAILABLE_CALIFORNIA_COUNTIES.has(county.trim().toLowerCase())) ||
+    (stateCode.toUpperCase() === "NY" &&
+      UNAVAILABLE_NEW_YORK_COUNTIES.has(county.trim().toLowerCase()))
   );
 }
 
@@ -399,7 +405,10 @@ export function validateOrderSubmission(
     errors["county"] = "Please select a valid county and city for this state.";
   }
   if (isCountyTemporarilyUnavailable(input.stateCode, input.county)) {
-    errors["county"] = COUNTY_UNAVAILABLE_MESSAGE;
+    errors["county"] =
+      input.stateCode.toUpperCase() === "NY"
+        ? NEW_YORK_COUNTY_UNAVAILABLE_MESSAGE
+        : COUNTY_UNAVAILABLE_MESSAGE;
   }
 
   const c = input.consents;
@@ -559,7 +568,10 @@ export function validateCorrection(input: CorrectionCandidate): OrderValidationR
     errors["county"] = "Please select a valid county and city for this state.";
   }
   if (isCountyTemporarilyUnavailable(input.stateCode, input.county)) {
-    errors["county"] = COUNTY_UNAVAILABLE_MESSAGE;
+    errors["county"] =
+      input.stateCode.toUpperCase() === "NY"
+        ? NEW_YORK_COUNTY_UNAVAILABLE_MESSAGE
+        : COUNTY_UNAVAILABLE_MESSAGE;
   }
   if (!input.reason.trim()) errors["reason"] = "Please complete this required field.";
   if (input.reason === "Other" && !input.reasonOther.trim()) {
