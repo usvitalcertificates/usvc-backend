@@ -44,6 +44,7 @@ export async function queuePaidOrderChatNotice(
     certificate?: string;
     deviceLocation?: { city?: string; region?: string };
     addresses?: { shipping?: { city?: string; state?: string } };
+    amountCents?: number;
     rush?: boolean;
   },
   session?: ClientSession,
@@ -63,6 +64,7 @@ export async function queuePaidOrderChatNotice(
         deviceRegion: order.deviceLocation?.region ?? "",
         shipCity: order.addresses?.shipping?.city ?? "",
         shipState: order.addresses?.shipping?.state ?? "",
+        amountCents: order.amountCents,
         rush: order.rush ?? false,
         status: "PENDING",
         attempts: 0,
@@ -91,6 +93,7 @@ export async function processNextGoogleChatDelivery(): Promise<boolean> {
           deviceRegion: delivery.deviceRegion ?? "",
           shipCity: delivery.shipCity ?? "",
           shipState: delivery.shipState ?? "",
+          amountCents: delivery.amountCents,
           rush: delivery.rush ?? false,
         }),
       ),
