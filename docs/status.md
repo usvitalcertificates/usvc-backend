@@ -1,8 +1,10 @@
 # Backend status + remaining work
 
-Last updated: 2026-10-22. Phase 1 (public APIs) and Phase 2 (staff MVP) built.
+Last updated: 2026-10-23. Phase 1 (public APIs) and Phase 2 (staff MVP) built.
 
 ## Implemented
+
+- ADMIN order reopen (2026-10-23): new `PATCH /orders/:id/reopen` (`requireAuth` + `requireActiveStaff` + `requireAdmin`) rewinds an accidental forward move (`SUBMITTED`/`GTG`/`TO_CS`/`IN_REVIEW` → `PAID`/`IN_REVIEW`) with a required reason. It rolls back `customerTimeline.processingAt`/`submittedToAgencyAt`, clears `substatus`, drops a still-pending submission-notification outbox job, and appends a `status_reopened` audit event (`from`, `status`, `reason`, `emailCancelled`). Already-sent submission emails cannot be recalled. Mirrored by the staff detail UI. Verification: build, lint, formatting and 185/185 unit tests pass (5 Mongo integration suites skipped locally). One-off owner-requested correction applied to production order `USNY-MG-20261022-00A009` (`SUBMITTED` → `IN_REVIEW`, submission milestone unset); no schema change.
 
 - Paid-order chat amount (2026-10-22): Google Chat paid-order alerts now include the server-authoritative order amount as a new `Amount: $149.00` line. The outbox snapshot and delivery model carry `amountCents`; legacy queued rows without the field render `Amount: Unknown` instead of a misleading zero. Message stays PII-free. Verification: 5/5 chat tests, build, lint and formatting pass; full suite has 182 passing and 5 Mongo integration tests skipped locally. Released via PR #94 to `develop` and PR #95 to `main`; staging and production health checks pass. Next real paid order confirms the deployed `Amount` line.
 

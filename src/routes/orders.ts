@@ -26,7 +26,12 @@ import { resolveDeviceLocation } from "../lib/ip-location.js";
 import { EmailOutbox } from "../models/email-outbox.js";
 import { nextOrderSequence } from "../models/counter.js";
 import { ApiError } from "../middleware/errors.js";
-import { requireAuth, type AuthUser } from "../middleware/auth.js";
+import {
+  requireActiveStaff,
+  requireAdmin,
+  requireAuth,
+  type AuthUser,
+} from "../middleware/auth.js";
 import { decryptSensitive, encryptSensitive } from "../lib/crypto.js";
 import {
   isAllowedStaffStatusTransition,
@@ -35,6 +40,7 @@ import {
   STAFF_STATUS_TIMELINE_KEYS,
 } from "../lib/customer-tracking.js";
 import { staffStatusUpdateSchema } from "../lib/order-substatus.js";
+import { adminReopenSchema, isAllowedAdminReopen } from "../lib/order-reopen.js";
 import rateLimit from "express-rate-limit";
 import multer from "multer";
 import {
@@ -654,6 +660,71 @@ ordersRouter.patch("/:id/status", requireAuth, async (req, res, next) => {
     next(e);
   }
 });
+
+/** ADMIN-only correction: rewind an accidental forward move (e.g. a premature
+ *  submit) and roll the customer-visible timeline back with it. The original
+ *  submission stays in the audit trail, and a queued submission notification
+ *  is dropped so a reopened order does not email the customer prematurely. */
+ordersRouter.patch(
+  "/:id/reopen",
+  requireAuth,
+  requireActiveStaff,
+  requireAdmin,
+  async (req, res, next) => {
+    try {
+      const id = z.string().min(1).parse(req.params.id);
+      const { status, reason } = adminReopenSchema.parse(req.body);
+      const actor = (req as typeof req & { user: AuthUser }).user;
+      const order = await Order.findById(id);
+      if (!order) throw new ApiError(404, "Order not found");
+      if (order.paymentStatus !== "PAID") throw new ApiError(409, "A paid order is required.");
+      const previousStatus = order.status;
+      if (!isAllowedAdminReopen(previousStatus, status))
+        throw new ApiError(422, "That status cannot be reopened from here.");
+
+      const occurredAt = new Date();
+      order.status = status;
+      order.substatus = null;
+      order.customerTimeline ??= {};
+      // The tracking page reads the timeline directly, so a status change alone
+      // is not enough: submitted/processing milestones must move with it.
+      if (status === "PAID") {
+        order.customerTimeline.processingAt = undefined;
+        order.customerTimeline.submittedToAgencyAt = undefined;
+      } else {
+        order.customerTimeline.submittedToAgencyAt = undefined;
+        order.customerTimeline.processingAt ??= occurredAt;
+      }
+
+      let emailCancelled = false;
+      if (previousStatus === "SUBMITTED") {
+        const removed = await EmailOutbox.deleteOne({
+          _id: `submission-notification:${order._id.toHexString()}`,
+          status: { $in: ["PENDING", "HELD"] },
+        });
+        emailCancelled = removed.deletedCount > 0;
+      }
+
+      order.auditEvents ??= [];
+      order.auditEvents.push({
+        actorId: actor.sub,
+        action: "status_reopened",
+        metadata: { status, from: previousStatus, reason, emailCancelled },
+        createdAt: occurredAt,
+      });
+      await order.save();
+
+      res.json({
+        status: order.status,
+        previousStatus,
+        emailCancelled,
+        updatedAt: order.updatedAt,
+      });
+    } catch (e) {
+      next(e);
+    }
+  },
+);
 
 /** Single completion PDF per order. Memory-held, 10 MB cap, replaced in full. */
 const pdfUpload = multer({
