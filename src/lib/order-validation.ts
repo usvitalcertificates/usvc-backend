@@ -43,10 +43,27 @@ const TEMPORARILY_UNAVAILABLE_CALIFORNIA_COUNTIES = new Set([
 export const COUNTY_UNAVAILABLE_MESSAGE =
   "Certificate issuance is currently unavailable through this county authority. Please select a different county.";
 
-export function isCountyTemporarilyUnavailable(stateCode: string, county: string): boolean {
+const UNAVAILABLE_NEW_YORK_MARRIAGE_COUNTIES = new Set([
+  "new york",
+  "kings",
+  "bronx",
+  "richmond",
+  "queens",
+]);
+export const NEW_YORK_MARRIAGE_COUNTY_UNAVAILABLE_MESSAGE =
+  "No Service Available for Marriage Certificates in this county.";
+
+export function isCountyTemporarilyUnavailable(
+  stateCode: string,
+  county: string,
+  certificate = "",
+): boolean {
   return (
-    stateCode.toUpperCase() === "CA" &&
-    TEMPORARILY_UNAVAILABLE_CALIFORNIA_COUNTIES.has(county.trim().toLowerCase())
+    (stateCode.toUpperCase() === "CA" &&
+      TEMPORARILY_UNAVAILABLE_CALIFORNIA_COUNTIES.has(county.trim().toLowerCase())) ||
+    (stateCode.toUpperCase() === "NY" &&
+      certificate === "MARRIAGE" &&
+      UNAVAILABLE_NEW_YORK_MARRIAGE_COUNTIES.has(county.trim().toLowerCase()))
   );
 }
 
@@ -398,8 +415,11 @@ export function validateOrderSubmission(
   if (!validateGeoSelection(input.stateCode, input.county, input.city)) {
     errors["county"] = "Please select a valid county and city for this state.";
   }
-  if (isCountyTemporarilyUnavailable(input.stateCode, input.county)) {
-    errors["county"] = COUNTY_UNAVAILABLE_MESSAGE;
+  if (isCountyTemporarilyUnavailable(input.stateCode, input.county, input.certificate)) {
+    errors["county"] =
+      input.stateCode.toUpperCase() === "NY"
+        ? NEW_YORK_MARRIAGE_COUNTY_UNAVAILABLE_MESSAGE
+        : COUNTY_UNAVAILABLE_MESSAGE;
   }
 
   const c = input.consents;
@@ -558,8 +578,11 @@ export function validateCorrection(input: CorrectionCandidate): OrderValidationR
   if (!validateGeoSelection(input.stateCode, input.county, input.city)) {
     errors["county"] = "Please select a valid county and city for this state.";
   }
-  if (isCountyTemporarilyUnavailable(input.stateCode, input.county)) {
-    errors["county"] = COUNTY_UNAVAILABLE_MESSAGE;
+  if (isCountyTemporarilyUnavailable(input.stateCode, input.county, input.certificate)) {
+    errors["county"] =
+      input.stateCode.toUpperCase() === "NY"
+        ? NEW_YORK_MARRIAGE_COUNTY_UNAVAILABLE_MESSAGE
+        : COUNTY_UNAVAILABLE_MESSAGE;
   }
   if (!input.reason.trim()) errors["reason"] = "Please complete this required field.";
   if (input.reason === "Other" && !input.reasonOther.trim()) {

@@ -1,5 +1,7 @@
 # Backend status + remaining work
 
+- New York marriage county availability (2026-10-23): New York, Kings, Bronx, Richmond and Queens counties are unavailable for NY marriage certificates only. Submission validation (including verify-before-payment and recovery) and CS correction validation reject these counties with the existing county-field error shape and “No Service Available for Marriage Certificates in this county.” Other NY certificate types and existing California restrictions remain unchanged. The legacy Checkout-session entry point also checks certificate type before any payment reconciliation or mutation. No existing orders or payment/workflow state modified. Verification: formatting, lint and build pass; 189 tests pass and 5 existing database integration suites skip without their local Mongo configuration. New HTTP tests use fake keys and no database connection to verify 422 county errors for create, pre-payment verification and stored Checkout, plus an available Albany verification. Not deployed.
+
 Last updated: 2026-10-23. Phase 1 (public APIs) and Phase 2 (staff MVP) built.
 
 ## Implemented
