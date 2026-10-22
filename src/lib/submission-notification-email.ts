@@ -23,10 +23,10 @@ function certificateName(value: SubmissionNotificationOrder["certificate"]): str
 }
 
 function submittedDate(value: Date): string {
-  return value.toLocaleString("en-US", {
+  return value.toLocaleDateString("en-US", {
     year: "numeric",
-    month: "long",
-    day: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   });
 }
 
