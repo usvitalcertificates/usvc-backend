@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import { Order } from "../models/order.js";
 import {
   COUNTY_UNAVAILABLE_MESSAGE,
+  NEW_YORK_COUNTY_UNAVAILABLE_MESSAGE,
+  validateCorrection,
   createOrderSchema,
   isCountyTemporarilyUnavailable,
   validateGeoSelection,
@@ -609,4 +612,133 @@ test("validates card brand, Luhn, expiry, and CVV", () => {
     paymentCard: { number: "5555555555554444", expiry: "12/30", securityCode: "123" },
   });
   assert.equal(validateOrderSubmission(mc).ok, true);
+});
+
+const newYorkGeo = JSON.parse(
+  readFileSync(new URL("../data/geo/NY.json", import.meta.url), "utf8"),
+) as { counties: { name: string; cities: string[] }[] };
+const unavailableNewYorkCounties = ["New York", "Kings", "Bronx", "Richmond", "Queens"];
+function newYorkInput(certificate: "BIRTH" | "DEATH" | "MARRIAGE" | "DIVORCE", county: string) {
+  const city = newYorkGeo.counties.find((row) => row.name === county)!.cities[0];
+  return createOrderSchema.parse({
+    ...base(certificate),
+    ...SUBJECTS[certificate],
+    stateSlug: "new-york",
+    stateCode: "NY",
+    stateName: "New York",
+    county,
+    city,
+  });
+}
+
+const newYorkCertificateTypes = ["BIRTH", "DEATH", "MARRIAGE", "DIVORCE"] as const;
+test("NY restrictions cover all four certificate types for submission, verification/recovery and corrections", () => {
+  for (const certificate of newYorkCertificateTypes)
+    for (const county of unavailableNewYorkCounties) {
+      const input = newYorkInput(certificate, county);
+      for (const result of [
+        validateOrderSubmission(input),
+        validateOrderSubmission({ ...input, paymentCard: undefined }, { requireCard: false }),
+        validateOrderSubmission({ ...input, requestorSsn: "" }, { storedSsn: true }),
+        validateCorrection(input),
+      ]) {
+        assert.equal(result.ok, false);
+        assert.equal(result.errors.county, NEW_YORK_COUNTY_UNAVAILABLE_MESSAGE);
+      }
+    }
+});
+test("other NY counties remain available for all four certificate types", () => {
+  for (const certificate of newYorkCertificateTypes) {
+    const input = newYorkInput(certificate, "Albany");
+    assert.equal(validateOrderSubmission(input).ok, true);
+    assert.equal(validateCorrection(input).ok, true);
+  }
+  assert.equal(isCountyTemporarilyUnavailable("ny", " QUEENS "), true);
+  assert.equal(isCountyTemporarilyUnavailable("NY", "Queensbury"), false);
+});
+test("California county restrictions remain certificate-independent", () => {
+  for (const county of [
+    "San Francisco",
+    "San Bernardino",
+    "Yolo",
+    "Riverside",
+    "Del Norte",
+    "Lake",
+    "Sutter",
+    "Kings",
+    "Santa Barbara",
+  ])
+    assert.equal(isCountyTemporarilyUnavailable("CA", county), true);
+  assert.equal(isCountyTemporarilyUnavailable("CA", "Los Angeles"), false);
+});
+
+test("HTTP create, verification, and stored checkout reject all four NY certificate types before payment or DB writes", async (t) => {
+  // Import routes only after selecting isolated, non-live test configuration.
+  Object.assign(process.env, {
+    NODE_ENV: "test",
+    MONGODB_URI: "mongodb://127.0.0.1:1/unused_county_test",
+    FRONTEND_URL: "http://localhost:3100",
+    JWT_ACCESS_SECRET: "a".repeat(32),
+    JWT_REFRESH_SECRET: "b".repeat(32),
+    STRIPE_SECRET_KEY: "sk_test_county_only",
+    STRIPE_PUBLISHABLE_KEY: "pk_test_county_only",
+    STRIPE_WEBHOOK_SECRET: "whsec_county_only",
+    PAYMENT_ENVIRONMENT: "test",
+    SENSITIVE_ENCRYPTION_KEY: "ab".repeat(32),
+    EMAIL_ENABLED: "false",
+    ANALYTICS_ENABLED: "false",
+    OPENAI_CONVERSIONS_ENABLED: "false",
+  });
+  const { default: express } = await import("express");
+  const { ordersRouter } = await import("../routes/orders.js");
+  const app = express();
+  app.use(express.json());
+  app.use("/orders", ordersRouter);
+  const server = app.listen(0, "127.0.0.1");
+  await new Promise<void>((resolve) => server.once("listening", resolve));
+  const address = server.address();
+  assert.ok(address && typeof address !== "string");
+  const origin = `http://127.0.0.1:${address.port}`;
+  try {
+    for (const certificate of newYorkCertificateTypes)
+      for (const county of unavailableNewYorkCounties) {
+        for (const path of ["/orders", "/orders/verify-before-payment"]) {
+          const response = await fetch(origin + path, {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify(newYorkInput(certificate, county)),
+          });
+          assert.equal(response.status, 422);
+          const body = (await response.json()) as { errors: Record<string, string> };
+          assert.equal(body.errors.county, NEW_YORK_COUNTY_UNAVAILABLE_MESSAGE);
+        }
+      }
+    let checkoutCertificate: (typeof newYorkCertificateTypes)[number] = "BIRTH";
+    const findOrder = t.mock.method(Order, "findById", async () => ({
+      stateCode: "NY",
+      certificate: checkoutCertificate,
+      geo: { county: "Queens" },
+    }));
+    for (const certificate of newYorkCertificateTypes) {
+      checkoutCertificate = certificate;
+      const checkout = await fetch(origin + "/orders/existing/checkout-session", {
+        method: "POST",
+      });
+      assert.equal(checkout.status, 422);
+      const body = (await checkout.json()) as { errors: Record<string, string> };
+      assert.equal(body.errors.county, NEW_YORK_COUNTY_UNAVAILABLE_MESSAGE);
+    }
+    assert.equal(findOrder.mock.callCount(), 4);
+    assert.equal(Order.db.readyState, 0, "no database connection is used");
+    const available = await fetch(origin + "/orders/verify-before-payment", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(newYorkInput("MARRIAGE", "Albany")),
+    });
+    assert.equal(available.status, 200);
+  } finally {
+    await new Promise<void>((resolve, reject) =>
+      server.close((error) => (error ? reject(error) : resolve())),
+    );
+  }
 });
