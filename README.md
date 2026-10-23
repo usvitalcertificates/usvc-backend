@@ -1,6 +1,6 @@
 # USVC backend
 
-Express 5 + TypeScript API backed by MongoDB Atlas via Mongoose. Server-authoritative pricing, invite-only TOTP staff auth, Stripe Checkout Sessions with idempotent webhooks. Node 24.
+Express 5 + TypeScript API backed by MongoDB Atlas via Mongoose. Server-authoritative pricing, invite-only TOTP staff auth, Stripe payments (direct charge + Checkout Sessions) with idempotent webhooks. Node 24.
 
 ```bash
 cp .env.example .env # Atlas URI, Stripe test keys

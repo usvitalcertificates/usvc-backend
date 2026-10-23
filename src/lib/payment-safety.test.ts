@@ -569,13 +569,13 @@ test(
           ).status,
           200,
         );
-        for (const model of [
-          EmailOutbox,
-          AnalyticsPurchaseDelivery,
-          OpenAIConversionDelivery,
-          GoogleChatDelivery,
-        ])
+        for (const model of [EmailOutbox, AnalyticsPurchaseDelivery, OpenAIConversionDelivery])
           assert.equal(await model.countDocuments({ orderId: order._id }), 1);
+        assert.equal(
+          await GoogleChatDelivery.countDocuments({ orderId: order._id }),
+          0,
+          "test-mode payments must not enqueue Google Chat alerts",
+        );
         assert.equal((await Order.findById(order._id).lean()).paymentStatus, "PAID");
       });
 
