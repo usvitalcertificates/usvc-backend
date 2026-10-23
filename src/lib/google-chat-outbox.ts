@@ -11,6 +11,13 @@ const POLL_MS = 5_000;
 let timer: NodeJS.Timeout | undefined;
 let draining = false;
 
+/** Paid-order Chat alerts are production-only. Staging and local runs use
+ *  test-mode payments, so they must never reach the real Space. */
+function paidOrderChatWebhook(): string | null {
+  if (env.PAYMENT_ENVIRONMENT !== "live") return null;
+  return env.GOOGLE_CHAT_WEBHOOK_URL ?? null;
+}
+
 function safeError(error: unknown) {
   return (error instanceof Error ? error.message : "Google Chat delivery failed")
     .replace(/[\r\n]+/g, " ")
@@ -49,6 +56,7 @@ export async function queuePaidOrderChatNotice(
   },
   session?: ClientSession,
 ): Promise<void> {
+  if (!paidOrderChatWebhook()) return;
   const firstName = order.applicant?.firstName?.trim() ?? "";
   const lastName = order.applicant?.lastName?.trim() ?? "";
   await GoogleChatDelivery.updateOne(
@@ -76,11 +84,12 @@ export async function queuePaidOrderChatNotice(
 }
 
 export async function processNextGoogleChatDelivery(): Promise<boolean> {
-  if (!env.GOOGLE_CHAT_WEBHOOK_URL) return false;
+  const webhookUrl = paidOrderChatWebhook();
+  if (!webhookUrl) return false;
   const delivery = await leaseNext(new Date());
   if (!delivery) return false;
   try {
-    const response = await fetch(env.GOOGLE_CHAT_WEBHOOK_URL, {
+    const response = await fetch(webhookUrl, {
       method: "POST",
       headers: { "content-type": "application/json; charset=UTF-8" },
       body: JSON.stringify(
@@ -146,7 +155,7 @@ async function drain(): Promise<void> {
 }
 
 export function startGoogleChatOutboxWorker(): void {
-  if (!env.GOOGLE_CHAT_WEBHOOK_URL || timer) return;
+  if (!paidOrderChatWebhook() || timer) return;
   void drain();
   timer = setInterval(() => void drain(), POLL_MS);
   timer.unref();
