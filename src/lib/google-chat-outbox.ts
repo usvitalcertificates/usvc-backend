@@ -41,7 +41,7 @@ async function leaseNext(now: Date) {
 }
 
 /** Idempotent enqueue: one row per order, created on first paid confirmation
- *  from either the direct-charge path or the Stripe webhook. */
+ *  from either the direct-charge path or the Stripe webhook in live mode. */
 export async function queuePaidOrderChatNotice(
   order: {
     _id: unknown;

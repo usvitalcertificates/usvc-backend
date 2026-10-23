@@ -10,7 +10,7 @@ Hard rules:
 - Validate every request with Zod before use.
 - Mongoose typed models + startup indexes. No manual production data changes. Prefer atomic `$push`/`$set` updates for projection-loaded docs.
 - Stripe webhooks: signature verify + event-ID idempotency + transaction-safe updates. Browser redirect never trusted.
-- Never log/return plaintext customer PII or secrets. Internal order fields are never in public projections; staff reads go only through authorized, audited endpoints. Outbox deliveries (email/GA4/OpenAI) are leased + idempotent.
+- Never log/return plaintext customer PII or secrets. Internal order fields are never in public projections; staff reads go only through authorized, audited endpoints. Outbox deliveries (email/GA4/OpenAI/Google Chat) are leased + idempotent.
 - Fresh `SENSITIVE_ENCRYPTION_KEY` per environment; losing the prod key is unrecoverable.
 
 Gates: `npm run build` + `npm test`, plus `format`, `format:check`, `lint`. Pre-commit: lint-staged + `tsc --noEmit` + `npm test`.
