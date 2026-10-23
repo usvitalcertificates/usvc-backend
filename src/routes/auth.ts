@@ -328,37 +328,59 @@ authRouter.post("/setup", authLimiter, async (req, res, next) => {
     const { token, password } = z
       .object({ token: z.string().min(1), password: z.string().min(8).max(200) })
       .parse(req.body);
-    const user = await StaffUser.findOne({ inviteTokenHash: hashInviteToken(token) }).select(
-      "+inviteTokenHash",
+    const tokenHash = hashInviteToken(token);
+    const eligible = {
+      inviteTokenHash: tokenHash,
+      accountStatus: { $in: ["pending", "active"] },
+      inviteExpiresAt: { $gt: new Date() },
+    };
+    const candidate = await StaffUser.findOne(eligible, { accountStatus: 1 }).lean();
+    if (!candidate)
+      throw new ApiError(
+        400,
+        "This setup or password reset link is invalid or has expired. Use the latest link, or sign in if you already saved your password.",
+      );
+    const isReset = candidate.accountStatus === "active";
+    const passwordHash = await argon2.hash(password);
+    // Consume the exact current token atomically, including a fresh expiry check
+    // after hashing. Concurrent submissions and replaced links cannot both win.
+    const user = await StaffUser.findOneAndUpdate(
+      {
+        ...eligible,
+        _id: candidate._id,
+        accountStatus: candidate.accountStatus,
+        inviteExpiresAt: { $gt: new Date() },
+      },
+      {
+        $set: {
+          passwordHash,
+          accountStatus: "active",
+          ...(isReset ? { sessionsRevokedAt: new Date(), failedLoginAttempts: 0 } : {}),
+        },
+        $unset: {
+          inviteTokenHash: 1,
+          inviteExpiresAt: 1,
+          ...(isReset ? { refreshTokenHash: 1, lockedUntil: 1 } : {}),
+        },
+        $push: {
+          auditEvents: staffEvent(
+            String(candidate._id),
+            isReset ? "password_reset_completed" : "invitation_accepted",
+          ),
+        },
+      },
+      { returnDocument: "after" },
     );
-    if (
-      !user ||
-      (user.accountStatus !== "pending" && user.accountStatus !== "active") ||
-      !user.inviteExpiresAt ||
-      user.inviteExpiresAt.getTime() < Date.now()
-    )
-      throw new ApiError(400, "This invitation link is invalid or has expired.");
-    const isReset = user.accountStatus === "active";
-    user.passwordHash = await argon2.hash(password);
-    user.inviteTokenHash = undefined;
-    user.inviteExpiresAt = undefined;
-    if (!isReset) user.accountStatus = "active";
-    if (isReset) {
-      // A reset secret must kill every session issued under the old password.
-      user.sessionsRevokedAt = new Date();
-      user.refreshTokenHash = undefined;
-      user.failedLoginAttempts = 0;
-      user.lockedUntil = undefined;
-    }
-    user.auditEvents ??= [];
-    user.auditEvents.push(
-      staffEvent(
-        user._id.toHexString(),
-        isReset ? "password_reset_completed" : "invitation_accepted",
-      ),
-    );
-    await user.save();
-    res.json({ ok: true, mfaToken: signMfaToken(user._id.toHexString()) });
+    if (!user)
+      throw new ApiError(
+        400,
+        "This setup or password reset link is invalid or has expired. Use the latest link, or sign in if you already saved your password.",
+      );
+    res.json({
+      ok: true,
+      enroll: !user.mfaEnabled,
+      mfaToken: signMfaToken(user._id.toHexString()),
+    });
   } catch (e) {
     next(e);
   }
