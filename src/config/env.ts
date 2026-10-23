@@ -78,7 +78,9 @@ export const envSchema = z
     OPENAI_CONVERSIONS_API_KEY: z.string().min(1).optional(),
     OPENAI_CONVERSION_SOURCE_URL: z.string().url().optional(),
     /** Incoming webhook URL of the Google Chat space receiving paid-order
-     *  alerts. Unset disables the worker; the URL is never committed. */
+     *  alerts. Sent only when PAYMENT_ENVIRONMENT=live; staging/local test
+     *  payments never queue or send. Unset disables the worker; the URL is
+     *  never committed. */
     GOOGLE_CHAT_WEBHOOK_URL: z.string().url().optional(),
     CARD_PURGE_HOUR: z.coerce.number().int().min(0).max(23).default(4),
   })
