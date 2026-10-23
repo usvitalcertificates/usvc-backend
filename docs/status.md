@@ -1,5 +1,7 @@
 # Backend status + remaining work
 
+- Node.js security pin (2026-10-24): the backend is pinned to Node `24.22.1` in `.nvmrc`, `package.json` engines (`>=24.22.1 <25`) and Render `NODE_VERSION`, the patched release for CVE-2026-111497 (Brotli decoder remote code execution). Local nvm is now on 24.22.1. Production was already running 24.22.1; this prevents drift and requires a Render redeploy for the config change. No application code, dependency, schema, order or payment behavior changed.
+
 - Staff password-reset recovery (2026-10-23): `POST /auth/setup` now returns `enroll` from the current account so enrolled staff verify their existing authenticator after changing a password. Setup/reset tokens are consumed with an atomic current-token, account-status and expiry check; concurrent submissions have one winner and replaced/used/expired links fail without a second password write. Errors identify both setup and reset links and direct users to the latest link or sign-in. Pairing is preserved on password-only resets. No account repair, migration, production writes or outbound email. Deploy backend before the matching frontend.
 - Staff recovery verification: `STAFF_AUTH_TEST_MONGODB_URI='mongodb://127.0.0.1:27945/' node --import tsx --test src/lib/staff-account-recovery.test.ts` uses a uniquely named disposable local database and real HTTP/Mongoose/Argon2/TOTP; no server workers or real email provider. Covers enrolled resets, new invites, reset pairing, roster transitions, invalid codes, adjacent-account isolation, rotated/consumed/expired/disabled links, simultaneous submissions, email-outbox recipient/token boundaries and anonymous denial. Full backend suite passes 285/285 with all local integration suites enabled (zero skips); build/lint/format checks pass. Production investigation was read-only: separate authenticator-reset and password-reset actions targeted separate accounts; the roster matched stored MFA state.
 
@@ -7,7 +9,7 @@
 
 - New York county availability (2026-10-23): New York, Kings, Bronx, Richmond and Queens counties are unavailable for all four NY certificate types. Submission/pre-payment verification, recovery validation, CS corrections and legacy Checkout-session creation reject them with “No Service Available for Certificates in this county.” before payment reconciliation or mutation. Other NY counties and existing California restrictions remain unchanged. No existing orders or payment/workflow state modified. Verification: formatting, lint and build pass; 189 tests pass with 5 existing Mongo integration suites skipped without local database configuration. Tests cover all four certificate types across all five counties, correction and recovery validation, HTTP create/pre-payment verification and legacy Checkout before any DB write or payment call. Albany remains available for all four types. Not deployed.
 
-Last updated: 2026-10-23. Phase 1 (public APIs) and Phase 2 (staff MVP) built.
+Last updated: 2026-10-24. Phase 1 (public APIs) and Phase 2 (staff MVP) built.
 
 ## Implemented
 
