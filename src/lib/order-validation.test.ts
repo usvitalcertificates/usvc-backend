@@ -292,7 +292,7 @@ test("rejects unknown father when the requestor is the father", () => {
   assert.ok(result.errors["family.fatherStatus"]);
 });
 
-test("enforces the birth event window (1906 through 90 days ago)", () => {
+test("enforces the county birth event window and 90-day wait", () => {
   for (const [eventDate, key] of [
     ["1905-12-31", "subject.eventDate"],
     [new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10), "subject.eventDate"],
@@ -360,12 +360,7 @@ test("requires the USVR marriage subject fields", () => {
   });
   const result = validateOrderSubmission(input);
   assert.equal(result.ok, false);
-  for (const key of [
-    "subject.sex",
-    "subject.maidenLastName",
-    "family.spouseSex",
-    "family.spouseMaidenLastName",
-  ]) {
+  for (const key of ["subject.sex", "family.spouseSex"]) {
     assert.ok(result.errors[key], `expected error for ${key}`);
   }
 });
@@ -389,13 +384,7 @@ test("requires the USVR divorce subject fields", () => {
   });
   const result = validateOrderSubmission(input);
   assert.equal(result.ok, false);
-  for (const key of [
-    "subject.eventDate",
-    "subject.sex",
-    "subject.maidenLastName",
-    "family.spouseSex",
-    "family.spouseMaidenLastName",
-  ]) {
+  for (const key of ["subject.eventDate", "subject.sex", "family.spouseSex"]) {
     assert.ok(result.errors[key], `expected error for ${key}`);
   }
 });
@@ -741,4 +730,67 @@ test("HTTP create, verification, and stored checkout reject all four NY certific
       server.close((error) => (error ? reject(error) : resolve())),
     );
   }
+});
+
+for (const certificate of ["MARRIAGE", "DIVORCE"] as const) {
+  test(`${certificate} requires maiden names only for the corresponding female spouse`, () => {
+    for (const sex of ["Male", "Female"])
+      for (const spouseSex of ["Male", "Female"]) {
+        const input = createOrderSchema.parse({
+          ...base(certificate),
+          ...SUBJECTS[certificate],
+          subject: { ...SUBJECTS[certificate].subject, sex, maidenLastName: "" },
+          family: { ...SUBJECTS[certificate].family, spouseSex, spouseMaidenLastName: "" },
+        });
+        for (const result of [validateOrderSubmission(input), validateCorrection(input)]) {
+          assert.equal(Boolean(result.errors["subject.maidenLastName"]), sex === "Female");
+          assert.equal(
+            Boolean(result.errors["family.spouseMaidenLastName"]),
+            spouseSex === "Female",
+          );
+        }
+      }
+  });
+}
+
+test("county event ranges apply equally to submission and correction without a global cutoff", () => {
+  for (const [certificate, year] of [
+    ["BIRTH", 1866],
+    ["DEATH", 1877],
+    ["MARRIAGE", 1852],
+  ] as const) {
+    for (const [eventDate, rejected] of [
+      [`${year}-01-01`, false],
+      [`${year - 1}-12-31`, true],
+    ] as const) {
+      const input = createOrderSchema.parse({
+        ...base(certificate),
+        ...SUBJECTS[certificate],
+        stateCode: "CA",
+        stateSlug: "california",
+        stateName: "California",
+        county: "Los Angeles",
+        city: "Los Angeles",
+        subject: { ...SUBJECTS[certificate].subject, eventDate },
+      });
+      for (const result of [validateOrderSubmission(input), validateCorrection(input)])
+        assert.equal(
+          Boolean(result.errors["subject.eventDate"]),
+          rejected,
+          `${certificate} ${eventDate}`,
+        );
+    }
+  }
+  const noRange = createOrderSchema.parse({
+    ...base("DIVORCE"),
+    ...SUBJECTS.DIVORCE,
+    stateCode: "CA",
+    stateSlug: "california",
+    stateName: "California",
+    county: "Los Angeles",
+    city: "Los Angeles",
+    subject: { ...SUBJECTS.DIVORCE.subject, eventDate: "1850-01-01" },
+  });
+  for (const result of [validateOrderSubmission(noRange), validateCorrection(noRange)])
+    assert.equal(result.errors["subject.eventDate"], undefined);
 });

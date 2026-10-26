@@ -1,3 +1,4 @@
+import { certificateDateBounds } from "./certificate-years.js";
 import { readFileSync } from "node:fs";
 import { z } from "zod";
 import { priceOrder, processingPricing, MAX_COPIES } from "./orders.js";
@@ -219,12 +220,12 @@ const REQUIRED: Record<CreateOrderInput["certificate"], { subject: string[]; fam
     family: [],
   },
   MARRIAGE: {
-    subject: ["firstName", "lastName", "eventDate", "sex", "maidenLastName"],
-    family: ["spouseFirstName", "spouseLastName", "spouseSex", "spouseMaidenLastName"],
+    subject: ["firstName", "lastName", "eventDate", "sex"],
+    family: ["spouseFirstName", "spouseLastName", "spouseSex"],
   },
   DIVORCE: {
-    subject: ["firstName", "lastName", "eventDate", "sex", "maidenLastName"],
-    family: ["spouseFirstName", "spouseLastName", "spouseSex", "spouseMaidenLastName"],
+    subject: ["firstName", "lastName", "eventDate", "sex"],
+    family: ["spouseFirstName", "spouseLastName", "spouseSex"],
   },
 };
 
@@ -234,28 +235,25 @@ function isValidDateString(value: string): boolean {
   return Number.isFinite(time);
 }
 
-/** Earliest birth year USVR accepts (Alabama reference form). */
-const BIRTH_MIN_DATE = "1906-01-01";
-
-function utcDateString(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
-
-/** Latest birth date USVR accepts: records are unavailable until 90 days after birth. */
-function birthMaxDate(now = new Date()): string {
-  const cutoff = new Date(now);
-  cutoff.setUTCDate(cutoff.getUTCDate() - 90);
-  return utcDateString(cutoff);
-}
-
-/** Shared birth-event-date window check (1906 .. 90 days ago). Empty/invalid
- *  values are reported by the required-field / format checks, not here. */
-function birthEventDateError(eventDate: string, now = new Date()): string {
+function eventDateRangeError(
+  input: {
+    stateCode: string;
+    certificate: string;
+    county: string;
+    subject: Record<string, string>;
+  },
+  now = new Date(),
+): string {
+  const eventDate = (input.subject.eventDate ?? "").trim();
   if (!eventDate || !isValidDateString(eventDate)) return "";
-  if (eventDate < BIRTH_MIN_DATE)
-    return "We can only accept orders for births that occurred in 1906 or later.";
-  if (eventDate > birthMaxDate(now))
-    return "Birth records are not available until 90 days after the date of birth.";
+  const { min, max } = certificateDateBounds(input.stateCode, input.certificate, input.county, now);
+  if (min && eventDate < min)
+    return `For the selected county, the event date must be ${min.slice(0, 4)} or later.`;
+  if (max && eventDate > max)
+    return input.certificate === "BIRTH" &&
+      max === new Date(now.getTime() - 90 * 864e5).toISOString().slice(0, 10)
+      ? "Birth records are not available until 90 days after the date of birth."
+      : `For the selected county, the event date must be ${max} or earlier.`;
   return "";
 }
 
@@ -306,6 +304,22 @@ export interface OrderValidationResult {
   errors: Record<string, string>;
 }
 
+function validateSpouseMaidenNames(
+  input: { certificate: string; subject: Record<string, string>; family: Record<string, string> },
+  errors: Record<string, string>,
+) {
+  if (input.certificate !== "MARRIAGE" && input.certificate !== "DIVORCE") return;
+  if (input.subject.sex?.trim().toLowerCase() === "female" && !input.subject.maidenLastName?.trim())
+    errors["subject.maidenLastName"] =
+      "Maiden name is required when the recorded gender is Female.";
+  if (
+    input.family.spouseSex?.trim().toLowerCase() === "female" &&
+    !input.family.spouseMaidenLastName?.trim()
+  )
+    errors["family.spouseMaidenLastName"] =
+      "Maiden name is required when the recorded gender is Female.";
+}
+
 export function validateOrderSubmission(
   input: CreateOrderInput,
   opts?: { requireCard?: boolean; storedSsn?: boolean },
@@ -317,6 +331,9 @@ export function validateOrderSubmission(
     return { ok: false, errors };
   }
   const required = REQUIRED[input.certificate];
+  validateSpouseMaidenNames(input, errors);
+  const rangeError = eventDateRangeError(input);
+  if (rangeError) errors["subject.eventDate"] = rangeError;
 
   for (const key of required.subject) {
     if (!(input.subject[key] ?? "").trim())
@@ -342,9 +359,6 @@ export function validateOrderSubmission(
     const birthDate = (input.subject["eventDate"] ?? "").trim();
     if (birthDate && !isValidDateString(birthDate)) {
       errors["subject.eventDate"] = "Please enter a valid date.";
-    } else {
-      const windowError = birthEventDateError(birthDate);
-      if (windowError) errors["subject.eventDate"] = windowError;
     }
     if (
       (input.subject["sex"] ?? "").trim().toLowerCase() === "female" &&
@@ -489,6 +503,9 @@ export interface CorrectionCandidate {
 export function validateCorrection(input: CorrectionCandidate): OrderValidationResult {
   const errors: Record<string, string> = {};
   const required = REQUIRED[input.certificate];
+  validateSpouseMaidenNames(input, errors);
+  const rangeError = eventDateRangeError(input);
+  if (rangeError) errors["subject.eventDate"] = rangeError;
 
   for (const key of required.subject) {
     if (!(input.subject[key] ?? "").trim())
@@ -536,10 +553,6 @@ export function validateCorrection(input: CorrectionCandidate): OrderValidationR
     !isValidDateString(eventDate)
   ) {
     errors["subject.eventDate"] = "Please enter a valid date.";
-  }
-  if (input.certificate === "BIRTH") {
-    const correctionWindowError = birthEventDateError(eventDate.trim());
-    if (correctionWindowError) errors["subject.eventDate"] = correctionWindowError;
   }
   if (!input.applicant.firstName.trim())
     errors["applicant.firstName"] = "Please complete this required field.";
