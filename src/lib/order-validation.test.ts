@@ -1,3 +1,7 @@
+import {
+  CALIFORNIA_DIVORCE_UNAVAILABLE_MESSAGE,
+  isNewCertificateUnavailable,
+} from "./certificate-availability.js";
 import assert from "node:assert/strict";
 import test from "node:test";
 import { readFileSync } from "node:fs";
@@ -681,6 +685,7 @@ test("HTTP create, verification, and stored checkout reject all four NY certific
   const { default: express } = await import("express");
   const { ordersRouter } = await import("../routes/orders.js");
   const app = express();
+  app.set("trust proxy", 1);
   app.use(express.json());
   app.use("/orders", ordersRouter);
   const server = app.listen(0, "127.0.0.1");
@@ -701,6 +706,26 @@ test("HTTP create, verification, and stored checkout reject all four NY certific
           const body = (await response.json()) as { errors: Record<string, string> };
           assert.equal(body.errors.county, NEW_YORK_COUNTY_UNAVAILABLE_MESSAGE);
         }
+      }
+    // A fresh synthetic IP keeps this regression independent of creation-rate limits.
+    for (const county of ["Los Angeles", "San Francisco"])
+      for (const path of ["/orders", "/orders/verify-before-payment"]) {
+        const response = await fetch(origin + path, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-forwarded-for": "192.0.2.10" },
+          body: JSON.stringify({
+            ...base("DIVORCE"),
+            ...SUBJECTS.DIVORCE,
+            stateCode: "CA",
+            stateSlug: "california",
+            stateName: "California",
+            county,
+          }),
+        });
+        assert.equal(response.status, 422);
+        const body = (await response.json()) as { message: string; errors: Record<string, string> };
+        assert.equal(body.message, CALIFORNIA_DIVORCE_UNAVAILABLE_MESSAGE);
+        assert.equal(body.errors.certificate, CALIFORNIA_DIVORCE_UNAVAILABLE_MESSAGE);
       }
     let checkoutCertificate: (typeof newYorkCertificateTypes)[number] = "BIRTH";
     const findOrder = t.mock.method(Order, "findById", async () => ({
@@ -793,4 +818,22 @@ test("county event ranges apply equally to submission and correction without a g
   });
   for (const result of [validateOrderSubmission(noRange), validateCorrection(noRange)])
     assert.equal(result.errors["subject.eventDate"], undefined);
+});
+
+test("California divorce new-request rule does not enter shared recovery validation", () => {
+  assert.equal(isNewCertificateUnavailable("ca", "DIVORCE"), true);
+  for (const certificate of ["BIRTH", "DEATH", "MARRIAGE"])
+    assert.equal(isNewCertificateUnavailable("CA", certificate), false);
+  assert.equal(isNewCertificateUnavailable("AL", "DIVORCE"), false);
+  const input = createOrderSchema.parse({
+    ...base("DIVORCE"),
+    ...SUBJECTS.DIVORCE,
+    stateCode: "CA",
+    stateSlug: "california",
+    stateName: "California",
+    county: "Los Angeles",
+    city: "Los Angeles",
+  });
+  assert.equal(validateOrderSubmission(input).ok, true, "existing recovery remains allowed");
+  assert.equal(validateCorrection(input).ok, true);
 });

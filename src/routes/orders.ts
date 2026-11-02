@@ -1,3 +1,7 @@
+import {
+  CALIFORNIA_DIVORCE_UNAVAILABLE_MESSAGE,
+  isNewCertificateUnavailable,
+} from "../lib/certificate-availability.js";
 import { Router, type NextFunction, type Request, type Response } from "express";
 import { randomUUID } from "node:crypto";
 import Stripe from "stripe";
@@ -85,6 +89,11 @@ const verifyLimiter = rateLimit({
 ordersRouter.post("/", orderCreationLimiter, async (req, res, next) => {
   try {
     const input = createOrderSchema.parse(req.body);
+    if (isNewCertificateUnavailable(input.stateCode, input.certificate))
+      return res.status(422).json({
+        message: CALIFORNIA_DIVORCE_UNAVAILABLE_MESSAGE,
+        errors: { certificate: CALIFORNIA_DIVORCE_UNAVAILABLE_MESSAGE },
+      });
     const result = validateOrderSubmission(input);
     if (!result.ok)
       return res
@@ -283,6 +292,11 @@ ordersRouter.post("/verify-before-payment", verifyLimiter, async (req, res, next
         ? { ...(req.body as Record<string, unknown>), paymentCard: undefined }
         : req.body;
     const input = createOrderSchema.parse(body);
+    if (isNewCertificateUnavailable(input.stateCode, input.certificate))
+      return res.status(422).json({
+        message: CALIFORNIA_DIVORCE_UNAVAILABLE_MESSAGE,
+        errors: { certificate: CALIFORNIA_DIVORCE_UNAVAILABLE_MESSAGE },
+      });
     const result = validateOrderSubmission(input, { requireCard: false });
     if (!result.ok)
       return res
