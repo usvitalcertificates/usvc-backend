@@ -72,13 +72,13 @@ test("discounted payment receipts show savings while historical receipts preserv
     stateName: "Florida",
     certificate: "BIRTH" as const,
     copies: 3,
-    pricing: { serviceCents: 28900, rushCents: 1200, totalCents: 30100 },
+    pricing: { serviceCents: 27700, rushCents: 1200, totalCents: 28900 },
   };
   const current = renderPaymentConfirmationEmail(order, "https://example.test");
   for (const body of [current.html, current.text]) {
-    assert.match(body, /Additional copies: 2 × \$70.00/);
-    assert.match(body, /You saved: \$158.00/);
-    assert.match(body, /Amount Paid Today: \$301.00/);
+    assert.match(body, /Additional copies: 2 × \$64.00/);
+    assert.match(body, /You saved: \$170.00/);
+    assert.match(body, /Amount Paid Today: \$289.00/);
   }
   const legacy = renderPaymentConfirmationEmail(
     { ...order, pricing: { serviceCents: 44700, rushCents: 0, totalCents: 44700 } },

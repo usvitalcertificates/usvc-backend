@@ -345,12 +345,12 @@ test(
             ...payload(),
             copies: 9,
             rush: true,
-            totalCents: 72100,
+            totalCents: 67300,
           });
           assert.equal(direct.status, 201, JSON.stringify(direct.body));
           const paid = await Order.findById(direct.body.id).lean();
-          assert.equal(paid.amountCents, 72100);
-          assert.equal(intents.get(paid.stripePaymentIntentId)!.amount, 72100);
+          assert.equal(paid.amountCents, 67300);
+          assert.equal(intents.get(paid.stripePaymentIntentId)!.amount, 67300);
           const legacy = await makeOrder({
             copies: 9,
             paymentAttempt: undefined,
@@ -360,9 +360,9 @@ test(
           await Order.updateOne({ _id: legacy._id }, { $unset: { applicationRevision: 1 } });
           const checkout = await post(`/orders/${legacy._id}/checkout-session`, {});
           assert.equal(checkout.status, 200, JSON.stringify(checkout.body));
-          assert.equal(checkout.body.amountCents, 70900);
+          assert.equal(checkout.body.amountCents, 66100);
           const latest = await Order.findById(legacy._id).lean();
-          assert.equal(sessions.get(latest.stripeCheckoutSessionId)!.amount_total, 70900);
+          assert.equal(sessions.get(latest.stripeCheckoutSessionId)!.amount_total, 66100);
         },
       );
       await t.test("a lost confirmation response resolves the same successful charge", async () => {

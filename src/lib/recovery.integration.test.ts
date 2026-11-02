@@ -733,12 +733,12 @@ test(
           assert.equal((await Order.findById(saved._id).lean()).amountCents, 134100);
           const paid = await call(
             `/recovery/applications/${saved._id}/pay`,
-            { revision: 0, application: { ...application, copies: 9, totalCents: 70900 } },
+            { revision: 0, application: { ...application, copies: 9, totalCents: 66100 } },
             authenticated.cookie,
           );
           assert.equal(paid.status, 201, JSON.stringify(paid.body));
           const latest = await Order.findById(saved._id).lean();
-          assert.equal(latest.amountCents, 70900);
+          assert.equal(latest.amountCents, 66100);
           assert.equal(latest.copies, 9);
           assert.equal(latest.paymentStatus, "PAID");
         },

@@ -1,12 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { ORDER_TYPE_CODES, encodeSequence, orderNumber, priceOrder } from "./orders.js";
-// First copy $149, additional copies $70, rush $12 per order.
-test("prices a domestic rush order", () => assert.equal(priceOrder(2, true, false), 23100));
+// First copy $149, additional copies $64, rush $12 per order.
+test("prices a domestic rush order", () => assert.equal(priceOrder(2, true, false), 22500));
 test("prices an international order same as domestic", () =>
   assert.equal(priceOrder(1, false, true), 14900));
 test("prices all nine quantities and rejects invalid copy counts", () => {
-  const totals = [14900, 21900, 28900, 35900, 42900, 49900, 56900, 63900, 70900];
+  const totals = [14900, 21300, 27700, 34100, 40500, 46900, 53300, 59700, 66100];
   totals.forEach((total, index) => {
     assert.equal(priceOrder(index + 1, false, false), total);
     assert.equal(priceOrder(index + 1, true, true), total + 1200);
