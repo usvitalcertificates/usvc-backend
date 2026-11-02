@@ -565,7 +565,7 @@ test("accepts nine discounted copies", () => {
     ...base("BIRTH"),
     ...SUBJECTS.BIRTH,
     copies: 9,
-    totalCents: 70900,
+    totalCents: 66100,
   });
   assert.equal(
     validateOrderSubmission(input).ok,

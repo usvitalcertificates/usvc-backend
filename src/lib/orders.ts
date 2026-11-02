@@ -2,7 +2,7 @@
  * Agency and shipping fees remain separate. All amounts are integer cents. */
 export const MAX_COPIES = 9;
 export const FIRST_COPY_CENTS = 14900;
-export const ADDITIONAL_COPY_CENTS = 7000;
+export const ADDITIONAL_COPY_CENTS = 6400;
 export const COPY_DISCOUNT_CENTS = FIRST_COPY_CENTS - ADDITIONAL_COPY_CENTS;
 export function processingPricing(copies: number, rush: boolean) {
   if (!Number.isInteger(copies) || copies < 1 || copies > MAX_COPIES)

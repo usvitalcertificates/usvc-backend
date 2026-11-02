@@ -14,7 +14,7 @@
 
 ## Lib (`src/lib/` + co-located `*.test.ts`)
 
-Pricing/validation: `orders.ts` (`priceOrder = 14900 + (copies-1)*7000 + (rush?1200:0)`, `encodeSequence`, plate numbers), `order-validation.ts` (per-cert maps, county→city, 9 CA counties blocked, identity plausibility + format + Luhn checks, E.164 `+` phone, copies 1–9 for new/changed quantities (historical stored quantities preserved), total mismatch → 422), `order-substatus.ts`, `order-document.ts` (GridFS PDF, 10MB, `%PDF-` magic bytes), `customer-tracking.ts` (customer-safe timeline).
+Pricing/validation: `orders.ts` (`priceOrder = 14900 + (copies-1)*6400 + (rush?1200:0)`, `encodeSequence`, plate numbers), `order-validation.ts` (per-cert maps, county→city, 9 CA counties blocked, identity plausibility + format + Luhn checks, E.164 `+` phone, copies 1–9 for new/changed quantities (historical stored quantities preserved), total mismatch → 422), `order-substatus.ts`, `order-document.ts` (GridFS PDF, 10MB, `%PDF-` magic bytes), `customer-tracking.ts` (customer-safe timeline).
 
 Crypto/auth/queue: `crypto.ts` (field helpers), `staff-auth.ts`, `staff-roles.ts` (`canSeePricing/canCorrectOrders` = ADMIN+CS), `staff-role-migration.ts`, `staff-queue.ts` (FIFO `createdAt`, `attentionFirst`, masked rows), `admin-staff-analytics.ts` (actor-event KPIs, date/workflow filters).
 
