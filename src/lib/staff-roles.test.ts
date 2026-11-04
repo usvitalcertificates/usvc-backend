@@ -77,6 +77,7 @@ const validCandidate: CorrectionCandidate = {
     sex: "Male",
     subjectMaidenLastName: "Lee",
     stillLiving: "Yes",
+    parentsMarriedAtBirth: "Yes",
   },
   family: {
     motherFirstName: "Maria",
