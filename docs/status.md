@@ -106,3 +106,5 @@ Proposed — awaiting owner decision:
 - [ ] `To CS` customer outreach procedure (tracker neutral today)
 - [ ] Add `requireActiveStaff` to the 6 `orders.ts` staff endpoints (detail/audit/status/document) — today they check `requireAuth` alone, so a disabled/revoked staffer with an unexpired 30m token can still use them
 - [ ] Confirm CS-can-`SUBMITTED` is intended (a CS owner with PDF + note can submit today; only ADMIN bypass is documented)
+
+- Submitted-order corrections (2026-11-04): assigned staff and Admin can replace the completion PDF and append internal notes without reopening, changing submission milestones, or sending another submission notification. Submitted PDF deletion is disabled in the portal and rejected by the API (including Admin). Replacement stores and links the new PDF before removing the old file; conditional document writes protect concurrent changes. One current PDF remains; no version history.
