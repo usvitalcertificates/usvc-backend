@@ -218,6 +218,7 @@ test(
         sex: "Female",
         subjectMaidenLastName: "Doe",
         stillLiving: "Yes",
+        parentsMarriedAtBirth: "Yes",
       },
       family: {
         motherFirstName: "Jane",

@@ -72,6 +72,7 @@ const SUBJECTS = {
       sex: "Female",
       subjectMaidenLastName: "Doe",
       stillLiving: "Yes",
+      parentsMarriedAtBirth: "Yes",
     },
     family: {
       motherFirstName: "Jane",
@@ -175,6 +176,7 @@ test("does not require a birth subject suffix", () => {
       sex: "Female",
       subjectMaidenLastName: "Doe",
       stillLiving: "Yes",
+      parentsMarriedAtBirth: "Yes",
     },
   });
   const result = validateOrderSubmission(input);
@@ -694,6 +696,35 @@ test("HTTP create, verification, and stored checkout reject all four NY certific
   assert.ok(address && typeof address !== "string");
   const origin = `http://127.0.0.1:${address.port}`;
   try {
+    for (const answer of ["", "Unknown"]) {
+      const input = createOrderSchema.parse({
+        ...base("BIRTH"),
+        ...SUBJECTS.BIRTH,
+        subject: { ...SUBJECTS.BIRTH.subject, parentsMarriedAtBirth: answer },
+      });
+      for (const path of ["/orders", "/orders/verify-before-payment"]) {
+        const response = await fetch(origin + path, {
+          method: "POST",
+          headers: { "content-type": "application/json", "x-forwarded-for": "192.0.2.11" },
+          body: JSON.stringify(input),
+        });
+        assert.equal(response.status, 422);
+        const body = (await response.json()) as { errors: Record<string, string> };
+        assert.equal(body.errors["subject.parentsMarriedAtBirth"], "Please select Yes or No.");
+      }
+    }
+    for (const answer of ["Yes", "No"]) {
+      const response = await fetch(origin + "/orders/verify-before-payment", {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-forwarded-for": "192.0.2.11" },
+        body: JSON.stringify({
+          ...base("BIRTH"),
+          ...SUBJECTS.BIRTH,
+          subject: { ...SUBJECTS.BIRTH.subject, parentsMarriedAtBirth: answer },
+        }),
+      });
+      assert.equal(response.status, 200);
+    }
     for (const certificate of newYorkCertificateTypes)
       for (const county of unavailableNewYorkCounties) {
         for (const path of ["/orders", "/orders/verify-before-payment"]) {
@@ -836,4 +867,61 @@ test("California divorce new-request rule does not enter shared recovery validat
   });
   assert.equal(validateOrderSubmission(input).ok, true, "existing recovery remains allowed");
   assert.equal(validateCorrection(input).ok, true);
+});
+
+test("birth parents marriage answer is required for submission and pre-payment verification", () => {
+  for (const answer of [undefined, "", "yes", "Unknown", "true"]) {
+    const input = createOrderSchema.parse({
+      ...base("BIRTH"),
+      ...SUBJECTS.BIRTH,
+      subject: Object.fromEntries(
+        Object.entries({ ...SUBJECTS.BIRTH.subject, parentsMarriedAtBirth: answer }).filter(
+          ([, value]) => value !== undefined,
+        ),
+      ),
+    });
+    for (const result of [
+      validateOrderSubmission(input),
+      validateOrderSubmission(input, { requireCard: false }),
+    ]) {
+      assert.equal(result.ok, false);
+      assert.equal(result.errors["subject.parentsMarriedAtBirth"], "Please select Yes or No.");
+    }
+  }
+  for (const answer of ["Yes", "No"]) {
+    const input = createOrderSchema.parse({
+      ...base("BIRTH"),
+      ...SUBJECTS.BIRTH,
+      subject: Object.fromEntries(
+        Object.entries({ ...SUBJECTS.BIRTH.subject, parentsMarriedAtBirth: answer }).filter(
+          ([, value]) => value !== undefined,
+        ),
+      ),
+    });
+    assert.equal(validateOrderSubmission(input).ok, true);
+    assert.equal(validateOrderSubmission(input, { requireCard: false }).ok, true);
+    assert.equal(new Order(input).subject.get("parentsMarriedAtBirth"), answer);
+  }
+});
+
+test("CS can correct parents marriage answers and keep legacy missing answers", () => {
+  for (const answer of [undefined, "", "Yes", "No", "Unknown", "yes", " "]) {
+    const input = createOrderSchema.parse({
+      ...base("BIRTH"),
+      ...SUBJECTS.BIRTH,
+      subject: Object.fromEntries(
+        Object.entries({ ...SUBJECTS.BIRTH.subject, parentsMarriedAtBirth: answer }).filter(
+          ([, value]) => value !== undefined,
+        ),
+      ),
+    });
+    const result = validateCorrection(input);
+    assert.equal(result.ok, answer === undefined || ["", "Yes", "No"].includes(answer));
+    if (!result.ok) assert.ok(result.errors["subject.parentsMarriedAtBirth"]);
+  }
+  for (const certificate of ["DEATH", "MARRIAGE", "DIVORCE"] as const) {
+    const input = createOrderSchema.parse({ ...base(certificate), ...SUBJECTS[certificate] });
+    assert.equal(validateOrderSubmission(input).ok, true);
+    assert.equal(validateCorrection(input).ok, true);
+  }
 });

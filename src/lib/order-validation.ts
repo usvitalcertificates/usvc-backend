@@ -331,6 +331,11 @@ export function validateOrderSubmission(
     return { ok: false, errors };
   }
   const required = REQUIRED[input.certificate];
+  if (
+    input.certificate === "BIRTH" &&
+    !["Yes", "No"].includes(input.subject.parentsMarriedAtBirth ?? "")
+  )
+    errors["subject.parentsMarriedAtBirth"] = "Please select Yes or No.";
   validateSpouseMaidenNames(input, errors);
   const rangeError = eventDateRangeError(input);
   if (rangeError) errors["subject.eventDate"] = rangeError;
@@ -503,6 +508,14 @@ export interface CorrectionCandidate {
 export function validateCorrection(input: CorrectionCandidate): OrderValidationResult {
   const errors: Record<string, string> = {};
   const required = REQUIRED[input.certificate];
+  const parentsMarried = input.subject.parentsMarriedAtBirth;
+  if (
+    input.certificate === "BIRTH" &&
+    parentsMarried !== undefined &&
+    parentsMarried !== "" &&
+    !["Yes", "No"].includes(parentsMarried)
+  )
+    errors["subject.parentsMarriedAtBirth"] = "Please select Yes or No.";
   validateSpouseMaidenNames(input, errors);
   const rangeError = eventDateRangeError(input);
   if (rangeError) errors["subject.eventDate"] = rangeError;

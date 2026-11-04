@@ -108,3 +108,7 @@ Proposed — awaiting owner decision:
 - [ ] Confirm CS-can-`SUBMITTED` is intended (a CS owner with PDF + note can submit today; only ADMIN bypass is documented)
 
 - Submitted-order corrections (2026-11-04): assigned staff and Admin can replace the completion PDF and append internal notes without reopening, changing submission milestones, or sending another submission notification. Submitted PDF deletion is disabled in the portal and rejected by the API (including Admin). Replacement stores and links the new PDF before removing the old file; conditional document writes protect concurrent changes. One current PDF remains; no version history.
+
+- Birth parents’ marriage question (2026-11-05): public birth forms for every state require an explicit Yes/No answer to “Were parents married at the time of birth?” with the SC paternity explanation, stored in subject.parentsMarriedAtBirth. Public submission and pre-payment verification reject missing/invalid answers; staff corrections allow missing legacy answers but reject invalid supplied values. Staff views display unanswered fields as Not provided. No backfill or inferred answers.
+
+- Birth-question verification: build, lint, formatting and 203 backend tests pass; six database-dependent tests are skipped without their local test database. Added direct HTTP create/pre-payment rejection checks, accepted Yes/No verification, Mongoose map persistence, optional legacy corrections and invalid correction rejection.
