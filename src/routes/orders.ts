@@ -791,23 +791,34 @@ ordersRouter.post("/:id/document", requireAuth, pdfSingle, async (req, res, next
     }
     if (!req.file?.buffer || !(req.file.buffer instanceof Buffer))
       throw new ApiError(422, "A PDF file is required.");
-    if (order.document?.fileId) await deleteOrderDocument(order.document.fileId);
+    const previousFileId = order.document?.fileId;
     const meta = await storeOrderDocument(id, req.file.buffer, validated.name, actor.sub);
-    order.set("document", {
-      fileId: meta.fileId,
-      name: meta.name,
-      size: meta.size,
-      uploadedBy: meta.uploadedBy,
-      uploadedAt: meta.uploadedAt,
-    });
-    order.auditEvents ??= [];
-    order.auditEvents.push({
-      actorId: actor.sub,
-      action: "document_uploaded",
-      metadata: { name: meta.name, size: meta.size },
-      createdAt: new Date(),
-    });
-    await order.save();
+    try {
+      const result = await Order.updateOne(
+        {
+          _id: id,
+          "document.fileId": previousFileId ?? { $exists: false },
+          assignedTo: order.assignedTo,
+        },
+        {
+          $set: { document: meta },
+          $push: {
+            auditEvents: {
+              actorId: actor.sub,
+              action: "document_uploaded",
+              metadata: { name: meta.name, size: meta.size },
+              createdAt: new Date(),
+            },
+          },
+        },
+      );
+      if (!result.matchedCount)
+        throw new ApiError(409, "Order changed. Refresh before replacing the PDF.");
+    } catch (error) {
+      await deleteOrderDocument(meta.fileId);
+      throw error;
+    }
+    if (previousFileId) await deleteOrderDocument(previousFileId);
     res.status(201).json({
       document: {
         name: meta.name,
@@ -857,10 +868,16 @@ ordersRouter.delete("/:id/document", requireAuth, async (req, res, next) => {
     const id = z.string().min(1).parse(req.params.id);
     const actor = (req as typeof req & { user: AuthUser }).user;
     const order = await loadRevealableOrder(id, actor);
+    if (order.status === "SUBMITTED")
+      throw new ApiError(409, "PDFs cannot be deleted after submission. Replace the PDF instead.");
     if (!order.document?.fileId) throw new ApiError(404, "No document uploaded for this order.");
-    await deleteOrderDocument(order.document.fileId);
-    await Order.updateOne(
-      { _id: id },
+    const result = await Order.updateOne(
+      {
+        _id: id,
+        status: { $ne: "SUBMITTED" },
+        "document.fileId": order.document.fileId,
+        assignedTo: order.assignedTo,
+      },
       {
         $unset: { document: 1 },
         $push: {
@@ -872,6 +889,9 @@ ordersRouter.delete("/:id/document", requireAuth, async (req, res, next) => {
         },
       },
     );
+    if (!result.matchedCount)
+      throw new ApiError(409, "Order changed. Refresh before deleting the PDF.");
+    await deleteOrderDocument(order.document.fileId);
     res.json({ ok: true });
   } catch (e) {
     next(e);
